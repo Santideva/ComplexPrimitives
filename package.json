@@ -1,0 +1,26 @@
+{
+  "name": "complexprimitives",
+  "version": "1.0.0",
+  "description": "/src\r ├── /geometry\r │ ├── Vertex.js // Defines a vertex: position & color\r │ ├── Edge.js // Defines an edge: connection between two vertices using a distance mapping function\r │ ├── Face.js // Defines a face: a collection of vertices (and optionally edges) that form a surface\r │ └── ComplexShape2D.js // High-level 2D shape built from vertices, edges, and a face\r │\r ├── /primitives\r │ └── ComplexPrimitive2D.js // Base class for 2D primitives (holds common metric & color logic, transformation, SDF, etc.)\r │\r └── /utils\r └── DistanceMapping.js // Registry and utility functions for remapping distances (e.g., polynomial mapping)",
+  "main": "index.js",
+  "scripts": {
+    "start": "webpack serve --open",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dat.gui": "^0.7.9",
+    "three": "^0.175.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.26.10",
+    "@babel/preset-env": "^7.26.9",
+    "babel-loader": "^10.0.0",
+    "glslify-loader": "^2.0.0",
+    "webpack": "^5.98.0",
+    "webpack-cli": "^6.0.1",
+    "webpack-dev-server": "^5.2.1"
+  }
+}
