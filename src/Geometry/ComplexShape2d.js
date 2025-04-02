@@ -11,6 +11,7 @@ import {
   weightedRIntersection, 
   weightedRDifference 
 } from "../utils/SDFBlending.js";
+import { logger } from "../utils/logger.js";
 
 let shapeCounter = 0;
 
@@ -47,11 +48,14 @@ export class ComplexShape2D extends ComplexPrimitive2D {
     // Initialize the composite SDF (if blending is used)
     this.updateCompositeSDF();
 
-    console.log(`Created ComplexShape2D with id: ${this.id} as a line-segment primitive`);
+    // Log the initial state of the geometry.
+    logger.info(`Created ComplexShape2D with id: ${this.id} as a line-segment primitive`);
+    logger.debug(`Initial Vertex Positions: Vertex A: (${this.vertices[0].position.x}, ${this.vertices[0].position.y}), Vertex B: (${this.vertices[1].position.x}, ${this.vertices[1].position.y})`);
   }
 
   // For a line segment, the base SDF is simply the distance from the point to the single edge.
   calculateBaseSDF(point) {
+    logger.debug(`Calculating base SDF for shape ${this.id} at point (${point.x}, ${point.y})`);
     // Use our helper method to compute the distance to the single edge.
     if (this.edges.length > 0) {
       return this.distanceToEdge(this.edges[0], point);
@@ -64,6 +68,8 @@ export class ComplexShape2D extends ComplexPrimitive2D {
     const { x: x1, y: y1 } = edge.vertexA.position;
     const { x: x2, y: y2 } = edge.vertexB.position;
     const { x, y } = point;
+
+    logger.debug(`Calculating distance to edge for shape ${this.id}: Edge from (${x1}, ${y1}) to (${x2}, ${y2}), Point: (${x}, ${y})`);
 
     // Vector from edge start to point
     const dx = x - x1;
@@ -95,13 +101,17 @@ export class ComplexShape2D extends ComplexPrimitive2D {
   // Update the cached composite SDF function based on current blending parameters.
   updateCompositeSDF() {
     const primitives = (this.blendParams.primitives || []).filter(p => p !== this);
+
+    // Log the blending parameters update
+    logger.debug(`Updating composite SDF for shape ${this.id}. Blending operation: ${this.blendParams.operation}, Smoothness: ${this.blendParams.smoothness}`);
     
     // For a line-segment primitive, if there are no additional primitives, we won't update compositeSDF.
     if (primitives.length === 0) {
       this.compositeSDF = null;
+      logger.debug(`No additional primitives. Composite SDF for shape ${this.id} is set to null.`);
       return;
     }
-    
+
     // Handle difference operation specially.
     if (this.blendParams.operation.toLowerCase() === 'difference') {
       if (this.blendParams.basePrimitive) {
@@ -132,6 +142,7 @@ export class ComplexShape2D extends ComplexPrimitive2D {
         operation === 'intersection' ? 'intersection' : 'union'
       );
     }
+    logger.debug(`Composite SDF updated for shape ${this.id}.`);
   }
 
   // computeSDF: For a line segment, simply return the base SDF or blend if additional primitives exist.
@@ -141,23 +152,23 @@ export class ComplexShape2D extends ComplexPrimitive2D {
       console.warn(`Detected recursive SDF calculation for shape ${this.id}`);
       return this.calculateBaseSDF(point);
     }
-    
+
     const newCallStack = [...callStack, this.id];
     const baseSDF = this.calculateBaseSDF(point);
-    
+
     if (!this.blendParams.primitives || this.blendParams.primitives.length === 0) {
       return baseSDF;
     }
-    
+
     if (!this.compositeSDF) {
       console.warn("Composite SDF not initialized. Returning base SDF.");
       return baseSDF;
     }
-    
+
     const compositeSdfValue = this.getCompositeSdfValue(point, newCallStack);
     const op = this.blendParams.operation.toLowerCase();
     const smoothness = this.blendParams.smoothness;
-    
+
     if (op === 'union') {
       return weightedRUnion(baseSDF, compositeSdfValue, smoothness);
     } else if (op === 'intersection') {
@@ -208,7 +219,7 @@ export class ComplexShape2D extends ComplexPrimitive2D {
     this.updateCompositeSDF();
     return this;
   }
-  
+
   setBlendParams(params = {}) {
     const oldParams = JSON.stringify(this.blendParams);
     this.blendParams = {
@@ -223,7 +234,7 @@ export class ComplexShape2D extends ComplexPrimitive2D {
     }
     return this;
   }
-  
+
   setBasePrimitive(primitive) {
     if (primitive === this) {
       console.warn("Cannot set self as base primitive. Ignoring.");
@@ -235,21 +246,28 @@ export class ComplexShape2D extends ComplexPrimitive2D {
     }
     return this;
   }
-  
+
   clearBlendPrimitives() {
     this.blendParams.primitives = [];
     this.updateCompositeSDF();
     return this;
   }
-  
+
   // For a line segment, transform updates the two vertices and then the composite SDF.
   transform(matrix) {
+    // Log pre-transformation vertex positions
+    logger.debug(`Shape ${this.id} - Before Transform: Vertex A: (${this.vertices[0].position.x}, ${this.vertices[0].position.y}), Vertex B: (${this.vertices[1].position.x}, ${this.vertices[1].position.y})`);
+    
     super.transform(matrix);
     for (const vertex of this.vertices) {
       if (vertex.transform) {
         vertex.transform(matrix);
       }
     }
+    
+    // Log post-transformation vertex positions
+    logger.debug(`Shape ${this.id} - After Transform: Vertex A: (${this.vertices[0].position.x}, ${this.vertices[0].position.y}), Vertex B: (${this.vertices[1].position.x}, ${this.vertices[1].position.y})`);
+    
     this.updateCompositeSDF();
     return this;
   }
