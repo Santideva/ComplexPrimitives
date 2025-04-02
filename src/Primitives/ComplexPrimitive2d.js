@@ -1,6 +1,6 @@
-// File: src/primitives/ComplexPrimitive2D.js
+// File: src/primitives/ComplexPrimitive2D.js (Updated)
 
-import { identityMapping, createPolynomialMapping } from "../utils/DistanceMapping.js";
+import { identityMapping, distanceMappingRegistry } from "../utils/DistanceMapping.js";
 
 /**
  * Base class for 2D primitives defined on the complex plane.
@@ -22,12 +22,35 @@ export class ComplexPrimitive2D {
     this.color = params.color || { h: 0, s: 1, l: 0.5, a: 1 };
 
     // Set the distance mapping function.
-    // Option 1: Directly provide a function.
-    // Option 2: Provide a configuration for a polynomial mapping.
+    // Options:
+    // 1. Directly provide a function
+    // 2. Provide a registered mapper name and its parameters
+    // 3. Provide a configuration for a polynomial mapping
     if (params.distanceMapper && typeof params.distanceMapper === 'function') {
       this.distanceMapper = params.distanceMapper;
+    } else if (params.distanceMapper && typeof params.distanceMapper === 'string') {
+      // Use a registered mapper
+      const mapperName = params.distanceMapper;
+      const mapperParams = params.distanceMapperParams || {};
+      
+      if (distanceMappingRegistry[mapperName]) {
+        // Check if this is a factory function or direct mapper
+        if (typeof distanceMappingRegistry[mapperName] === 'function' && 
+            distanceMappingRegistry[mapperName].length > 0) {
+          // It's a factory function, call it with params
+          this.distanceMapper = distanceMappingRegistry[mapperName](
+            mapperParams.a, mapperParams.b, mapperParams.c, mapperParams.e
+          );
+        } else {
+          // It's a direct mapper function
+          this.distanceMapper = distanceMappingRegistry[mapperName];
+        }
+      } else {
+        console.warn(`Mapper "${mapperName}" not found, using identity mapping`);
+        this.distanceMapper = identityMapping;
+      }
     } else if (params.metric && params.metric.polyCoeffs) {
-      this.distanceMapper = createPolynomialMapping(params.metric.polyCoeffs);
+      this.distanceMapper = distanceMappingRegistry.polynomial(params.metric.polyCoeffs);
     } else {
       this.distanceMapper = identityMapping;
     }

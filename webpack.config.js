@@ -1,13 +1,17 @@
 // File: webpack.config.js
-const path = require("path");
+import path from "path";
+import { fileURLToPath } from "url";
 
-module.exports = {
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const config = {
   entry: "./src/index.js",
   mode: "development",
   output: {
     filename: "bundle.js",
     path: path.resolve(__dirname, "dist"),
-    publicPath: "/dist/"  // This makes the bundle available at /dist/bundle.js
+    publicPath: "/dist/" // Bundle available at /dist/bundle.js
   },
   devServer: {
     static: path.resolve(__dirname),
@@ -19,7 +23,10 @@ module.exports = {
       {
         test: /\.js$/,
         exclude: /node_modules/,
-        use: { loader: "babel-loader", options: { presets: ["@babel/preset-env"] } }
+        use: { 
+          loader: "babel-loader", 
+          options: { presets: ["@babel/preset-env"] } 
+        }
       },
       {
         test: /\.(glsl|vs|fs)$/,
@@ -31,3 +38,5 @@ module.exports = {
     extensions: [".js", ".glsl"]
   }
 };
+
+export default config;

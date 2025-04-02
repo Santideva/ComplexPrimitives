@@ -1,6 +1,7 @@
 {
   "name": "complexprimitives",
   "version": "1.0.0",
+  "type": "module",
   "description": "/src\r ├── /geometry\r │ ├── Vertex.js // Defines a vertex: position & color\r │ ├── Edge.js // Defines an edge: connection between two vertices using a distance mapping function\r │ ├── Face.js // Defines a face: a collection of vertices (and optionally edges) that form a surface\r │ └── ComplexShape2D.js // High-level 2D shape built from vertices, edges, and a face\r │\r ├── /primitives\r │ └── ComplexPrimitive2D.js // Base class for 2D primitives (holds common metric & color logic, transformation, SDF, etc.)\r │\r └── /utils\r └── DistanceMapping.js // Registry and utility functions for remapping distances (e.g., polynomial mapping)",
   "main": "index.js",
   "scripts": {
