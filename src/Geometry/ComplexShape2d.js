@@ -12,6 +12,8 @@ import {
   weightedRDifference 
 } from "../utils/SDFBlending.js";
 import { logger } from "../utils/logger.js";
+// Import THREE for the new createLineObject method
+import * as THREE from "three";
 
 let shapeCounter = 0;
 
@@ -201,6 +203,80 @@ export class ComplexShape2D extends ComplexPrimitive2D {
       console.error(`Error computing composite SDF: ${error}`);
       return Infinity;
     }
+  }
+
+  // Add the new createLineObject() method here
+  createLineObject() {
+    logger.debug(`Creating line object for shape ${this.id}`);
+    
+    // Create base points from our vertices
+    const basePoints = [
+      new THREE.Vector3(this.vertices[0].position.x, this.vertices[0].position.y, 0),
+      new THREE.Vector3(this.vertices[1].position.x, this.vertices[1].position.y, 0)
+    ];
+    
+    // Check if we should visualize the distance mapping effect
+    const points = [];
+    if (this.distanceMapper && typeof this.distanceMapper === 'function') {
+      // Generate a denser set of points to show the mapping effect
+      const numIntermediatePoints = 20; // Adjustable based on desired smoothness
+      
+      for (let i = 0; i <= numIntermediatePoints; i++) {
+        const t = i / numIntermediatePoints;
+        const x = this.vertices[0].position.x + t * (this.vertices[1].position.x - this.vertices[0].position.x);
+        const y = this.vertices[0].position.y + t * (this.vertices[1].position.y - this.vertices[0].position.y);
+        
+        // For visualization purposes, we could modify these points based on the SDF
+        // For example, we could offset them perpendicular to the edge based on the mapper
+        // This is just one approach - you could visualize the effect differently
+        const normal = {
+          x: -(this.vertices[1].position.y - this.vertices[0].position.y),
+          y: this.vertices[1].position.x - this.vertices[0].position.x
+        };
+        
+        // Normalize the normal
+        const length = Math.sqrt(normal.x * normal.x + normal.y * normal.y);
+        normal.x /= length;
+        normal.y /= length;
+        
+        // Apply the distance mapper as a displacement along the normal
+        // For visualization purposes only
+        const originalDistance = 0; // The base distance from the line to itself
+        const mappedDistance = this.distanceMapper(originalDistance);
+        const displacement = mappedDistance - originalDistance;
+        
+        // Scale the displacement for better visualization
+        const scaleFactor = 0.1;
+        const visualX = x + normal.x * displacement * scaleFactor;
+        const visualY = y + normal.y * displacement * scaleFactor;
+        
+        points.push(new THREE.Vector3(visualX, visualY, 0));
+      }
+    } else {
+      // If no special visualization is needed, just use the base points
+      points.push(...basePoints);
+    }
+    
+    // Create the THREE.js geometry and material
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    
+    // Convert our HSL color format to THREE.js color
+    const color = new THREE.Color();
+    if (this.color && typeof this.color.h !== 'undefined') {
+      // Convert HSL to RGB for THREE.js
+      const h = this.color.h / 360;
+      const s = typeof this.color.s === 'number' ? this.color.s : 0.8;
+      const l = typeof this.color.l === 'number' ? this.color.l : 0.6;
+      color.setHSL(h, s, l);
+    } else {
+      // Default color if our format is not available
+      color.set(0x0000ff);
+    }
+    
+    const lineMaterial = new THREE.LineBasicMaterial({ color });
+    
+    logger.debug(`Line object created for shape ${this.id} with ${points.length} points`);
+    return new THREE.Line(geometry, lineMaterial);
   }
 
   // Methods for managing blending parameters remain largely unchanged.

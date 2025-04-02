@@ -6,9 +6,11 @@ import {
   weightedRDifference 
 } from "../utils/SDFBlending.js";
 import { distanceMappingRegistry, identityMapping } from "../utils/DistanceMapping.js";
+import { logger } from "../utils/logger.js";
 
 export const stateStore = {
   shapes: [],
+  visualUpdateCallbacks: [], // Add storage for visual update callbacks
   
   addShape(shape) {
     this.shapes.push(shape);
@@ -40,6 +42,29 @@ export const stateStore = {
     console.log("State store cleared.");
   },
   
+  // Add method to register visual update callbacks
+  onVisualUpdate(callback) {
+    if (typeof callback === 'function') {
+      this.visualUpdateCallbacks.push(callback);
+      logger.debug(`Visual update callback registered. Total callbacks: ${this.visualUpdateCallbacks.length}`);
+      return true;
+    }
+    logger.warn("Attempted to register invalid visual update callback");
+    return false;
+  },
+  
+  // Add method to trigger visual updates
+  triggerVisualUpdate(shapeId) {
+    logger.debug(`Triggering visual update for shape ${shapeId}`);
+    this.visualUpdateCallbacks.forEach(callback => {
+      try {
+        callback(shapeId);
+      } catch (error) {
+        logger.error(`Error in visual update callback: ${error.message}`);
+      }
+    });
+  },
+  
   updateShapeMapper(shapeId, mapperName, mapperParams) {
     const shape = this.getShape(shapeId);
     if (shape) {
@@ -64,24 +89,26 @@ export const stateStore = {
           shape.updateCompositeSDF();
         }
         console.log(`Updated shape ${shape.id} mapper to ${mapperName} with params:`, mapperParams);
+        
+        // Trigger visual update after updating the mapper
+        this.triggerVisualUpdate(shape.id);
       }
     }
   },
   
-  // New methods for blending operations
-  
-  // Set blending parameters for a shape
+  // Update for the setShapeBlendParams method to trigger visual updates
   setShapeBlendParams(shapeId, blendParams) {
     const shape = this.getShape(shapeId);
     if (shape && typeof shape.setBlendParams === 'function') {
       shape.setBlendParams(blendParams);
       console.log(`Updated blend params for shape ${shapeId}:`, blendParams);
+      this.triggerVisualUpdate(shapeId);
       return true;
     }
     return false;
   },
   
-  // Add a primitive to a shape's blend list
+  // Update for the addBlendPrimitive method to trigger visual updates
   addBlendPrimitive(shapeId, primitiveId, operation = null) {
     const shape = this.getShape(shapeId);
     const primitive = this.getShape(primitiveId);
@@ -95,12 +122,13 @@ export const stateStore = {
       
       shape.addBlendPrimitive(primitive, operation);
       console.log(`Added primitive ${primitiveId} to shape ${shapeId} with operation: ${operation || 'current'}`);
+      this.triggerVisualUpdate(shapeId);
       return true;
     }
     return false;
   },
   
-  // Remove a primitive from a shape's blend list
+  // Update for the removeBlendPrimitive method to trigger visual updates
   removeBlendPrimitive(shapeId, primitiveId) {
     const shape = this.getShape(shapeId);
     
@@ -110,18 +138,20 @@ export const stateStore = {
         shape.blendParams.primitives.splice(index, 1);
         shape.updateCompositeSDF();
         console.log(`Removed primitive ${primitiveId} from shape ${shapeId}`);
+        this.triggerVisualUpdate(shapeId);
         return true;
       }
     }
     return false;
   },
   
-  // Clear all blend primitives for a shape
+  // Update for the clearBlendPrimitives method to trigger visual updates
   clearBlendPrimitives(shapeId) {
     const shape = this.getShape(shapeId);
     if (shape && typeof shape.clearBlendPrimitives === 'function') {
       shape.clearBlendPrimitives();
       console.log(`Cleared all blend primitives from shape ${shapeId}`);
+      this.triggerVisualUpdate(shapeId);
       return true;
     }
     return false;
@@ -146,10 +176,13 @@ export const stateStore = {
     this.shapes.push(blendedShape);
     console.log(`Created blended shape with ${primitivesToBlend.length} primitives. Total shapes: ${this.shapes.length}`);
     
+    // Trigger visual update for the new shape
+    this.triggerVisualUpdate(blendedShape.id);
+    
     return blendedShape;
   },
   
-  // Set the base primitive for difference operations
+  // Update for the setBasePrimitive method to trigger visual updates
   setBasePrimitive(shapeId, primitiveId) {
     const shape = this.getShape(shapeId);
     const primitive = this.getShape(primitiveId);
@@ -157,6 +190,7 @@ export const stateStore = {
     if (shape && primitive && typeof shape.setBasePrimitive === 'function') {
       shape.setBasePrimitive(primitive);
       console.log(`Set ${primitiveId} as base primitive for shape ${shapeId}`);
+      this.triggerVisualUpdate(shapeId);
       return true;
     }
     return false;

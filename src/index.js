@@ -51,20 +51,26 @@ let line = new THREE.Line(geometry, lineMaterial);
 scene.add(line);
 
 // Function to update geometry in real-time when GUI parameters change
+
 function updateGeometry() {
+  // Remove the existing line from the scene
   scene.remove(line);
   
-  points = [
-    new THREE.Vector3(lineSegmentShape.vertices[0].position.x, lineSegmentShape.vertices[0].position.y, 0),
-    new THREE.Vector3(lineSegmentShape.vertices[1].position.x, lineSegmentShape.vertices[1].position.y, 0)
-  ];
-  geometry.setFromPoints(points);
+  // Use the new createLineObject method to get an updated line object
+  line = lineSegmentShape.createLineObject();
   
-  line = new THREE.Line(geometry, lineMaterial);
+  // Add the new line to the scene
   scene.add(line);
   
   logger.info("Line segment updated with new mapping parameters.");
 }
+
+// ADD the visual update callback - right after the updateGeometry function definition
+stateStore.onVisualUpdate((shapeId) => {
+  if (shapeId === lineSegmentShape.id) {
+    updateGeometry();
+  }
+});
 
 // 8. dat.GUI Setup for User Interaction
 const gui = new dat.GUI();
