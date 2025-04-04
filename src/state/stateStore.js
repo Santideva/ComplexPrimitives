@@ -5,12 +5,78 @@ import {
   weightedRIntersection, 
   weightedRDifference 
 } from "../utils/SDFBlending.js";
-import { distanceMappingRegistry, identityMapping } from "../utils/DistanceMapping.js";
+import { 
+  distanceMappingRegistry, 
+  identityMapping, 
+  createMapping 
+} from "../utils/DistanceMapping.js";
 import { logger } from "../utils/logger.js";
 
 export const stateStore = {
   shapes: [],
-  visualUpdateCallbacks: [], // Add storage for visual update callbacks
+  visualUpdateCallbacks: [], // Storage for visual update callbacks
+  
+  // New mapping configuration properties
+  selectedMappingType: "polynomial", // Default mapping type
+  baseMapping: identityMapping, // Default base mapping function
+  blendFactor: 0.5, // For blended mappings
+  timeFrequency: 1.0, // For temporal mappings
+  recursionLimit: 3, // For recursive mappings
+  amplitude: 1.0,
+
+  
+  // Dynamic distance mapping based on current configuration
+  get distanceMapping() {
+    return createMapping(this.selectedMappingType, {
+      baseMapper: this.baseMapping,
+      baseMappers: [this.baseMapping, identityMapping], // Default second mapper for composite operations
+      blendFactor: this.blendFactor,
+      frequency: this.timeFrequency,
+      amplitude: this.amplitude, 
+      iterations: this.recursionLimit,
+      polyCoeffs: [0, 1, 0], // Default linear coefficients
+      a: 1,
+      b: 1,
+      c: 0,
+      e: 0
+    });
+  },
+  
+  // Method to update mapping configuration
+  updateMappingConfig(config = {}) {
+    const {
+      mappingType,
+      baseMapper,
+      secondaryMapper,
+      blendFactor,
+      frequency,
+      recursionLimit,
+      polyCoeffs,
+      a, b, c, e,
+      amplitude = 1.0  // Provide a default value for amplitude
+    } = config;
+    
+    if (mappingType) this.selectedMappingType = mappingType;
+    if (baseMapper) this.baseMapping = baseMapper;
+    if (blendFactor !== undefined) this.blendFactor = blendFactor;
+    if (frequency !== undefined) this.timeFrequency = frequency;
+    if (recursionLimit !== undefined) this.recursionLimit = recursionLimit;
+    if (amplitude !== undefined) this.amplitude = amplitude;
+
+    // Store additional parameters that might be needed for specific mapping types
+    this.mappingParams = {
+      ...this.mappingParams,
+      polyCoeffs: polyCoeffs || [0, 1, 0],
+      a: a !== undefined ? a : 1,
+      b: b !== undefined ? b : 1,
+      c: c !== undefined ? c : 0,
+      e: e !== undefined ? e : 0,
+      secondaryMapper: secondaryMapper || identityMapping
+    };
+    
+    logger.debug(`Updated mapping configuration: ${this.selectedMappingType}`);
+    return this.distanceMapping;
+  },
   
   addShape(shape) {
     this.shapes.push(shape);
@@ -42,7 +108,6 @@ export const stateStore = {
     console.log("State store cleared.");
   },
   
-  // Add method to register visual update callbacks
   onVisualUpdate(callback) {
     if (typeof callback === 'function') {
       this.visualUpdateCallbacks.push(callback);
@@ -53,7 +118,6 @@ export const stateStore = {
     return false;
   },
   
-  // Add method to trigger visual updates
   triggerVisualUpdate(shapeId) {
     logger.debug(`Triggering visual update for shape ${shapeId}`);
     this.visualUpdateCallbacks.forEach(callback => {
@@ -96,7 +160,6 @@ export const stateStore = {
     }
   },
   
-  // Update for the setShapeBlendParams method to trigger visual updates
   setShapeBlendParams(shapeId, blendParams) {
     const shape = this.getShape(shapeId);
     if (shape && typeof shape.setBlendParams === 'function') {
@@ -108,7 +171,6 @@ export const stateStore = {
     return false;
   },
   
-  // Update for the addBlendPrimitive method to trigger visual updates
   addBlendPrimitive(shapeId, primitiveId, operation = null) {
     const shape = this.getShape(shapeId);
     const primitive = this.getShape(primitiveId);
@@ -128,7 +190,6 @@ export const stateStore = {
     return false;
   },
   
-  // Update for the removeBlendPrimitive method to trigger visual updates
   removeBlendPrimitive(shapeId, primitiveId) {
     const shape = this.getShape(shapeId);
     
@@ -145,7 +206,6 @@ export const stateStore = {
     return false;
   },
   
-  // Update for the clearBlendPrimitives method to trigger visual updates
   clearBlendPrimitives(shapeId) {
     const shape = this.getShape(shapeId);
     if (shape && typeof shape.clearBlendPrimitives === 'function') {
@@ -157,7 +217,6 @@ export const stateStore = {
     return false;
   },
   
-  // Create a new shape by blending multiple existing shapes
   createBlendedShape(primitiveIds, params = {}) {
     // Ensure we have valid primitives
     const primitivesToBlend = primitiveIds
@@ -182,7 +241,6 @@ export const stateStore = {
     return blendedShape;
   },
   
-  // Update for the setBasePrimitive method to trigger visual updates
   setBasePrimitive(shapeId, primitiveId) {
     const shape = this.getShape(shapeId);
     const primitive = this.getShape(primitiveId);
@@ -190,6 +248,21 @@ export const stateStore = {
     if (shape && primitive && typeof shape.setBasePrimitive === 'function') {
       shape.setBasePrimitive(primitive);
       console.log(`Set ${primitiveId} as base primitive for shape ${shapeId}`);
+      this.triggerVisualUpdate(shapeId);
+      return true;
+    }
+    return false;
+  },
+  
+  // Apply the current global mapping configuration to a specific shape
+  applyGlobalMappingToShape(shapeId) {
+    const shape = this.getShape(shapeId);
+    if (shape) {
+      shape.distanceMapper = this.distanceMapping;
+      if (typeof shape.updateCompositeSDF === 'function') {
+        shape.updateCompositeSDF();
+      }
+      logger.debug(`Applied global mapping (${this.selectedMappingType}) to shape ${shapeId}`);
       this.triggerVisualUpdate(shapeId);
       return true;
     }
