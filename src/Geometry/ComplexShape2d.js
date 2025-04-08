@@ -282,7 +282,12 @@ export class ComplexShape2D extends ComplexPrimitive2D {
   }
 
   setBlendParams(params = {}) {
-    const oldParams = JSON.stringify(this.blendParams);
+    const replacer = (key, value) => {
+      if (key === "primitives") return undefined;
+      return value;
+    };
+
+    const oldParams = JSON.stringify(this.blendParams, replacer);
     
     this.blendParams = {
       ...this.blendParams,
@@ -293,7 +298,7 @@ export class ComplexShape2D extends ComplexPrimitive2D {
       this.blendParams.primitives = this.blendParams.primitives.filter(p => p !== this);
     }
     
-    if (oldParams !== JSON.stringify(this.blendParams)) {
+    if (oldParams !== JSON.stringify(this.blendParams, replacer)) {
       this.updateCompositeSDF();
     }
     
