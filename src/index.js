@@ -1,4 +1,3 @@
-// File: src/index.js
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CameraManager } from "./rendering/cameraManager.js";
@@ -36,19 +35,14 @@ const lightingManager = new LightingManager(scene);
 let currentPrimitive = null;  // Global variable for currently active primitive
 
 function instantiatePrimitive(type) {
-  // Remove current primitive from scene and clear stateStore if needed
   if (currentPrimitive) {
-    // Remove its object from the scene
     scene.remove(currentPrimitive.object);
-    // Optionally remove it from the stateStore (or clear the shapes array)
     stateStore.removeShape(currentPrimitive.id);
     currentPrimitive = null;
   }
 
-  // Depending on type, instantiate the chosen primitive
   switch (type.toLowerCase()) {
     case "line":
-      // Instantiate a base line-segment primitive with polynomial mapping
       const initialPolyCoeffs = [0, 1, 0.5];
       const polyMapping = createPolynomialMapping(initialPolyCoeffs);
       const lineSegmentShape = new ComplexShape2D({
@@ -59,11 +53,9 @@ function instantiatePrimitive(type) {
       stateStore.addShape(lineSegmentShape);
       logger.info("Line segment shape instantiated.");
       currentPrimitive = { instance: lineSegmentShape, type: "line" };
-      // For consistency, we create its Three.js object using createLineObject
       currentPrimitive.object = lineSegmentShape.createLineObject();
       break;
     case "triangle":
-      // Instantiate a TrianglePrimitive
       const triangle = new TrianglePrimitive({
         size: 1,
         rotation: 0,
@@ -80,7 +72,6 @@ function instantiatePrimitive(type) {
       currentPrimitive.object = triangle.createObject();
       break;
     case "arc":
-      // Instantiate an ArcPrimitive
       const arc = new ArcPrimitive({
         radius: 1.5,
         startAngle: 0,
@@ -102,16 +93,13 @@ function instantiatePrimitive(type) {
       instantiatePrimitive("line");
       return;
   }
-
-  // Add the new primitive object to the scene
   scene.add(currentPrimitive.object);
 }
 
-// Initially, instantiate the line primitive
+// Initially instantiate the line primitive.
 instantiatePrimitive("line");
 
-// 7. (Existing code for line segment updating remains as fallback for time-based mapping)
-// Function to update geometry for time-dependent mappings (used for the base line, if active)
+// 7. Function to update geometry for time-dependent mappings.
 function updateGeometry(time = 0) {
   if (currentPrimitive && currentPrimitive.type === "line") {
     scene.remove(currentPrimitive.object);
@@ -121,7 +109,7 @@ function updateGeometry(time = 0) {
   }
 }
 
-// Extend ComplexShape2D prototype to handle time parameter if needed
+// Extend ComplexShape2D prototype if needed.
 if (!ComplexShape2D.prototype.createLineObject) {
   ComplexShape2D.prototype.createLineObject = function(time = 0) {
     const mappedPoints = this.vertices.map(vertex => {
@@ -143,14 +131,14 @@ if (!ComplexShape2D.prototype.createLineObject) {
   };
 }
 
-// Register visual update callback for the line segment (if active)
+// Register visual update callback for the line segment.
 stateStore.onVisualUpdate((shapeId) => {
   if (currentPrimitive && shapeId === currentPrimitive.instance.id && currentPrimitive.type === "line") {
     updateGeometry();
   }
 });
 
-// Initialize stateStore with default mapping configuration
+// Initialize mapping configuration.
 stateStore.updateMappingConfig({
   mappingType: "polynomial",
   polyCoeffs: [0, 1, 0.5],
@@ -163,24 +151,22 @@ stateStore.updateMappingConfig({
   recursionLimit: 3
 });
 
-// 8. dat.GUI Setup for User Interaction
+// ***********************
+// Set up dat.GUI for User Interaction
+// ***********************
 const gui = new dat.GUI();
 
-// Primitive Selection Controls
-const primitiveSelection = { primitive: "Line" }; // default selection
+const primitiveSelection = { primitive: "Line" };
 gui.add(primitiveSelection, "primitive", ["Line", "Triangle", "Arc"])
   .name("Select Primitive")
   .onChange((value) => {
-    // When user changes the primitive type, instantiate the selected type
     instantiatePrimitive(value);
   });
 
-// Lighting Controls
 const lightingFolder = gui.addFolder("Lighting");
 lightingFolder.add(lightingManager.ambientLight, "intensity", 0, 2).name("Ambient Intensity");
 lightingFolder.add(lightingManager.directionalLight, "intensity", 0, 2).name("Directional Intensity");
 
-// Distance Mapping Controls (for the line segment)
 const mapperFolder = gui.addFolder("Distance Mapping");
 const mappingParams = {
   a: 1,
@@ -278,7 +264,6 @@ mapperFolder.add(mappingParams, "e", -2, 2).step(0.1)
   });
 mapperFolder.open();
 
-// GUI Controls for Triangle Primitive (only shown when triangle is selected)
 const triangleFolder = gui.addFolder("Triangle Controls");
 const triangleParams = {
   size: 1,
@@ -319,7 +304,6 @@ triangleFolder.add(triangleParams, "posY", -5, 5).onChange((value) => {
 });
 triangleFolder.open();
 
-// GUI Controls for Arc Primitive (only shown when arc is selected)
 const arcFolder = gui.addFolder("Arc Controls");
 const arcParams = {
   radius: 1.5,
@@ -374,13 +358,22 @@ arcFolder.add(arcParams, "posY", -5, 5).onChange((value) => {
 });
 arcFolder.open();
 
-// 10. Animation Loop with time tracking
+// ***********************
+// Animation Loop with Time Tracking and Garbage Collection
+// ***********************
 let startTime = performance.now();
 function animate() {
   const currentTime = (performance.now() - startTime) / 1000.0; // Time in seconds
+
+  // Update the custom 'rendered' flag for each shape.
+  // Here we simply check if the shape's Three.js object is in the scene.
+  stateStore.sessionShapes.forEach(shape => {
+    shape.rendered = scene.children.includes(shape.object);
+  });
   
-  // For the line primitive, update geometry with time-dependent mapping
-  if (currentPrimitive && currentPrimitive.type === "line" && ["temporal", "sequential", "blended"].includes(stateStore.selectedMappingType)) {
+  // For the line primitive, update geometry if needed.
+  if (currentPrimitive && currentPrimitive.type === "line" &&
+      ["temporal", "sequential", "blended"].includes(stateStore.selectedMappingType)) {
     updateGeometry(currentTime);
   }
   
@@ -389,10 +382,28 @@ function animate() {
   renderer.render(scene, camera);
 }
 
-// Set initial camera position and start animation
+// Set initial camera position and start animation.
 camera.position.set(0, 0, 5);
 controls.update();
 animate();
+
+// ***********************
+// Hybrid Garbage Collection Trigger
+// ***********************
+// Run garbage collection every 5 minutes.
+setInterval(() => {
+  stateStore.runGarbageCollection();
+}, 5 * 60 * 1000);
+
+// Optionally, trigger threshold-based garbage collection:
+// For example, if the number of shapes exceeds 5000, run GC immediately.
+function thresholdBasedGC() {
+  const THRESHOLD = 5000;
+  if (stateStore.sessionShapes.size > THRESHOLD) {
+    stateStore.runGarbageCollection();
+  }
+}
+// You could call thresholdBasedGC() after each addShape or periodically.
 
 // 11. Handle Window Resize
 window.addEventListener("resize", () => {

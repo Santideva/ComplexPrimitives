@@ -1,4 +1,3 @@
-// File: src/state/stateStore.js
 import { 
   createBlendedPrimitive, 
   weightedRUnion, 
@@ -13,7 +12,8 @@ import {
 import { logger } from "../utils/logger.js";
 
 export const stateStore = {
-  shapes: [],
+  // Use a Set for sessionShapes for fast insertion, deletion, and uniqueness.
+  sessionShapes: new Set(),
   visualUpdateCallbacks: [], // Storage for visual update callbacks
   
   // New mapping configuration properties
@@ -24,7 +24,6 @@ export const stateStore = {
   recursionLimit: 3, // For recursive mappings
   amplitude: 1.0,
 
-  
   // Dynamic distance mapping based on current configuration
   get distanceMapping() {
     return createMapping(this.selectedMappingType, {
@@ -63,7 +62,6 @@ export const stateStore = {
     if (recursionLimit !== undefined) this.recursionLimit = recursionLimit;
     if (amplitude !== undefined) this.amplitude = amplitude;
 
-    // Store additional parameters that might be needed for specific mapping types
     this.mappingParams = {
       ...this.mappingParams,
       polyCoeffs: polyCoeffs || [0, 1, 0],
@@ -78,33 +76,56 @@ export const stateStore = {
     return this.distanceMapping;
   },
   
+  // Add a shape to sessionShapes.
   addShape(shape) {
-    this.shapes.push(shape);
-    console.log(`Shape with id ${shape.id} added. Total shapes: ${this.shapes.length}`);
-    return shape.id; // Return ID for convenience
+    // Immediately flag the shape as active.
+    shape.active = true;
+    // Record the creation time (in milliseconds) for later garbage collection rules.
+    shape.createdAt = Date.now();
+    // Use our custom flag "rendered" (to be updated by rendering logic).
+    shape.rendered = true;
+    
+    this.sessionShapes.add(shape);
+    console.log(
+      `Shape added - id: ${shape.id}, active: ${shape.active}, rendered: ${shape.rendered}, createdAt: ${shape.createdAt}. ` +
+      `Total shapes in session: ${this.sessionShapes.size}`
+    );
+    return shape.id;
   },
   
+  // Retrieve a shape by its id from sessionShapes.
   getShape(shapeId) {
-    return this.shapes.find(s => s.id === shapeId);
+    for (let shape of this.sessionShapes) {
+      if (shape.id === shapeId) return shape;
+    }
+    return undefined;
   },
   
+  // Return all shapes as an array.
   getShapes() {
-    return this.shapes;
+    return Array.from(this.sessionShapes);
   },
   
+  // Remove a shape from sessionShapes by its id.
   removeShape(shapeId) {
-    const index = this.shapes.findIndex(s => s.id === shapeId);
-    if (index >= 0) {
-      const shape = this.shapes[index];
-      this.shapes.splice(index, 1);
-      console.log(`Shape with id ${shapeId} removed. Total shapes: ${this.shapes.length}`);
-      return shape;
+    let removedShape = null;
+    for (let shape of this.sessionShapes) {
+      if (shape.id === shapeId) {
+        removedShape = shape;
+        break;
+      }
+    }
+    if (removedShape) {
+      this.sessionShapes.delete(removedShape);
+      console.log(`Shape with id ${shapeId} removed. Total shapes in session: ${this.sessionShapes.size}`);
+      return removedShape;
     }
     return null;
   },
   
+  // Clear all shapes from sessionShapes.
   clear() {
-    this.shapes = [];
+    this.sessionShapes.clear();
     console.log("State store cleared.");
   },
   
@@ -132,10 +153,8 @@ export const stateStore = {
   updateShapeMapper(shapeId, mapperName, mapperParams) {
     const shape = this.getShape(shapeId);
     if (shape) {
-      // Update the shape's distanceMapper using the new configuration
       if (mapperName && typeof mapperName === 'string') {
         if (distanceMappingRegistry[mapperName]) {
-          // Use the factory if parameters are needed
           if (typeof distanceMappingRegistry[mapperName] === 'function' &&
               distanceMappingRegistry[mapperName].length > 0) {
             shape.distanceMapper = distanceMappingRegistry[mapperName](
@@ -148,13 +167,10 @@ export const stateStore = {
           console.warn(`Mapper "${mapperName}" not found. Using identity mapping.`);
           shape.distanceMapper = identityMapping;
         }
-        // Recompute SDF if the shape has an updateCompositeSDF method
         if (typeof shape.updateCompositeSDF === 'function') {
           shape.updateCompositeSDF();
         }
         console.log(`Updated shape ${shape.id} mapper to ${mapperName} with params:`, mapperParams);
-        
-        // Trigger visual update after updating the mapper
         this.triggerVisualUpdate(shape.id);
       }
     }
@@ -165,7 +181,7 @@ export const stateStore = {
     if (shape && typeof shape.setBlendParams === 'function') {
       shape.setBlendParams(blendParams);
       console.log(`Updated blend params for shape ${shapeId}:`, blendParams);
-      this.triggerVisualUpdate(shapeId);
+      this.triggerVisualUpdate(shape.id);
       return true;
     }
     return false;
@@ -176,7 +192,6 @@ export const stateStore = {
     const primitive = this.getShape(primitiveId);
     
     if (shape && primitive && typeof shape.addBlendPrimitive === 'function') {
-      // Prevent adding a shape to its own blend list
       if (shapeId === primitiveId) {
         console.warn("Cannot add a shape to its own blend list");
         return false;
@@ -184,7 +199,7 @@ export const stateStore = {
       
       shape.addBlendPrimitive(primitive, operation);
       console.log(`Added primitive ${primitiveId} to shape ${shapeId} with operation: ${operation || 'current'}`);
-      this.triggerVisualUpdate(shapeId);
+      this.triggerVisualUpdate(shape.id);
       return true;
     }
     return false;
@@ -192,14 +207,13 @@ export const stateStore = {
   
   removeBlendPrimitive(shapeId, primitiveId) {
     const shape = this.getShape(shapeId);
-    
     if (shape && shape.blendParams && shape.blendParams.primitives) {
       const index = shape.blendParams.primitives.findIndex(p => p.id === primitiveId);
       if (index >= 0) {
         shape.blendParams.primitives.splice(index, 1);
         shape.updateCompositeSDF();
         console.log(`Removed primitive ${primitiveId} from shape ${shapeId}`);
-        this.triggerVisualUpdate(shapeId);
+        this.triggerVisualUpdate(shape.id);
         return true;
       }
     }
@@ -211,14 +225,13 @@ export const stateStore = {
     if (shape && typeof shape.clearBlendPrimitives === 'function') {
       shape.clearBlendPrimitives();
       console.log(`Cleared all blend primitives from shape ${shapeId}`);
-      this.triggerVisualUpdate(shapeId);
+      this.triggerVisualUpdate(shape.id);
       return true;
     }
     return false;
   },
   
   createBlendedShape(primitiveIds, params = {}) {
-    // Ensure we have valid primitives
     const primitivesToBlend = primitiveIds
       .map(id => this.getShape(id))
       .filter(shape => shape !== undefined);
@@ -228,16 +241,10 @@ export const stateStore = {
       return null;
     }
     
-    // Create the blended primitive using the SDFBlending utility
     const blendedShape = createBlendedPrimitive(primitivesToBlend, params);
-    
-    // Add the new shape to the stateStore and return it
-    this.shapes.push(blendedShape);
-    console.log(`Created blended shape with ${primitivesToBlend.length} primitives. Total shapes: ${this.shapes.length}`);
-    
-    // Trigger visual update for the new shape
+    this.sessionShapes.add(blendedShape);
+    console.log(`Created blended shape with ${primitivesToBlend.length} primitives. Total shapes in session: ${this.sessionShapes.size}`);
     this.triggerVisualUpdate(blendedShape.id);
-    
     return blendedShape;
   },
   
@@ -254,7 +261,7 @@ export const stateStore = {
     return false;
   },
   
-  // Apply the current global mapping configuration to a specific shape
+  // Apply the current global mapping configuration to a specific shape.
   applyGlobalMappingToShape(shapeId) {
     const shape = this.getShape(shapeId);
     if (shape) {
@@ -267,5 +274,21 @@ export const stateStore = {
       return true;
     }
     return false;
+  },
+  
+  // **************** Hybrid Garbage Collection ****************
+  // Remove shapes that are not rendered and that were created more than MIN_AGE milliseconds ago.
+  runGarbageCollection() {
+    const now = Date.now();
+    const MIN_AGE = 10 * 60 * 1000; // 10 minutes in milliseconds
+    
+    // Iterate over the sessionShapes Set.
+    for (let shape of this.sessionShapes) {
+      // If the shape is older than MIN_AGE and is not rendered, remove it.
+      if ((now - shape.createdAt) > MIN_AGE && !shape.rendered) {
+        this.sessionShapes.delete(shape);
+      }
+    }
+    console.log(`Garbage Collection complete. Remaining shapes in session: ${this.sessionShapes.size}`);
   }
 };
