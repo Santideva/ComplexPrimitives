@@ -24,16 +24,16 @@ export const stateStore = {
   recursionLimit: 3, // For recursive mappings
   amplitude: 1.0,
 
-  // Dynamic distance mapping based on current configuration
+  // Dynamic distance mapping based on current configuration.
   get distanceMapping() {
     return createMapping(this.selectedMappingType, {
       baseMapper: this.baseMapping,
-      baseMappers: [this.baseMapping, identityMapping], // Default second mapper for composite operations
+      baseMappers: [this.baseMapping, identityMapping], // Default second mapper for composite operations.
       blendFactor: this.blendFactor,
       frequency: this.timeFrequency,
       amplitude: this.amplitude, 
       iterations: this.recursionLimit,
-      polyCoeffs: [0, 1, 0], // Default linear coefficients
+      polyCoeffs: [0, 1, 0], // Default linear coefficients.
       a: 1,
       b: 1,
       c: 0,
@@ -41,7 +41,7 @@ export const stateStore = {
     });
   },
   
-  // Method to update mapping configuration
+  // Method to update mapping configuration.
   updateMappingConfig(config = {}) {
     const {
       mappingType,
@@ -52,7 +52,7 @@ export const stateStore = {
       recursionLimit,
       polyCoeffs,
       a, b, c, e,
-      amplitude = 1.0  // Provide a default value for amplitude
+      amplitude = 1.0  // Provide a default value for amplitude.
     } = config;
     
     if (mappingType) this.selectedMappingType = mappingType;
@@ -75,6 +75,10 @@ export const stateStore = {
     logger.debug(`Updated mapping configuration: ${this.selectedMappingType}`);
     return this.distanceMapping;
   },
+  
+  // ---------------------------------------------------------------------------
+  // Existing methods for shape management.
+  // ---------------------------------------------------------------------------
   
   // Add a shape to sessionShapes.
   addShape(shape) {
@@ -280,7 +284,7 @@ export const stateStore = {
   // Remove shapes that are not rendered and that were created more than MIN_AGE milliseconds ago.
   runGarbageCollection() {
     const now = Date.now();
-    const MIN_AGE = 10 * 60 * 1000; // 10 minutes in milliseconds
+    const MIN_AGE = 5 * 60 * 1000; // 10 minutes in milliseconds
     
     // Iterate over the sessionShapes Set.
     for (let shape of this.sessionShapes) {
@@ -290,5 +294,51 @@ export const stateStore = {
       }
     }
     console.log(`Garbage Collection complete. Remaining shapes in session: ${this.sessionShapes.size}`);
+  },
+  
+  // ---------------------------------------------------------------------------
+  // NEW: createShapeFromSerialized()
+  // ---------------------------------------------------------------------------
+  /**
+   * createShapeFromSerialized
+   * This factory method is used by the persistence module to reconstruct shapes 
+   * from their serialized data.
+   * 
+   * Input:
+   *  - type: A string representing the shape type ("triangle", "arc", "line", etc.)
+   *  - data: A plain object containing the serialized parameters.
+   * 
+   * The method uses a switch statement to choose the appropriate constructor.
+   * If a shape type is unknown, it logs a warning and returns null.
+   */
+  createShapeFromSerialized(type, data) {
+    let shape = null;
+    try {
+      switch (type.toLowerCase()) {
+        case "triangle":
+          // Construct a TrianglePrimitive using the data.
+          shape = new TrianglePrimitive(data);
+          break;
+        case "arc":
+          // Construct an ArcPrimitive using the data.
+          shape = new ArcPrimitive(data);
+          break;
+        case "line":
+          // Use ComplexShape2D for line segments.
+          shape = new ComplexShape2D(data);
+          break;
+        default:
+          logger.warn(`Unknown shape type during deserialization: ${type}`);
+          break;
+      }
+    } catch (error) {
+      logger.error(`Error deserializing shape of type ${type}: ${error.message}`);
+      shape = null;
+    }
+    return shape;
   }
+  
+  // ---------------------------------------------------------------------------
+  // End of stateStore object.
+  // ---------------------------------------------------------------------------
 };
