@@ -1,138 +1,190 @@
-Overview
-This project is a procedurally generated 2D geometry visualization built with Three.js. It allows users to interactively manipulate complex shapes using distance mapping functions, real-time shape transformations, and an intuitive GUI. The framework supports dynamic updates to geometry based on distance functions, making it ideal for exploring procedural design and computational geometry.
+Here’s an updated version of your `README.md` that includes the **save/load scene functionality**, as well as a cleaner organization of existing features. I've also added a **Persistence** section to the Features and Usage blocks and updated the Project Structure to reflect this new logic if it's housed in a `persistence/` folder.
 
-Features
-Customizable Distance Mapping: Choose between polynomial, logarithmic, identity, and other distance mappings.
+---
 
-Dynamic Shape Transformations: Modify shape properties such as vertex distances and face translations.
+````md
+# Geometry Visualizer
 
-Real-time Rendering: Utilizes Three.js for smooth visual updates.
+## Overview
 
-Interactive GUI: Control lighting intensity, distance functions, and shape parameters via dat.GUI.
+This project is a procedurally generated 2D geometry visualization tool built with Three.js. It allows users to interactively manipulate complex shapes using distance mapping functions, real-time shape transformations, and an intuitive GUI. The framework supports dynamic updates to geometry based on signed distance functions, making it ideal for exploring procedural design, computational geometry, and visual mathematics.
 
-Efficient State Management: Uses a centralized state store for managing shape data and transformations.
+---
 
-Modular Design: Components such as the CameraManager, LightingManager, and TextureLoader allow for easy extension and modification.
+## Features
 
-GUI Controls
-Ambient Intensity Slider: Adjusts the strength of ambient lighting, which affects overall scene brightness.
+- **Customizable Distance Mapping**: Choose between polynomial, logarithmic, identity, and other mapping functions that affect how shapes deform.
+- **Dynamic Shape Transformations**: Modify shape properties such as vertex displacement, face translation, rotation, and more.
+- **Real-time Rendering**: Smooth visual updates using an efficient Three.js rendering pipeline.
+- **Interactive GUI**: Adjust lighting, distance functions, shape parameters, and transformation options via `dat.GUI`.
+- **Efficient State Management**: A centralized store handles all shape and session data, ensuring reactivity and modular interaction.
+- **Persistence Support**: Save and reload scenes with full shape and transformation data, enabling session continuity and experimentation.
+- **Modular Architecture**: Key components (CameraManager, LightingManager, DistanceMapping, etc.) are designed for easy extension and reuse.
 
-Directional Light Slider: Controls the primary light source’s intensity, influencing shading and depth perception.
+---
 
-Distance Mapper Dropdown: Switches between different distance mapping functions (identity, polynomial, logarithmic, etc.), affecting vertex positioning dynamically.
+## Persistence: Save and Load Scenes
 
-Installation
-Prerequisites
-Node.js (Recommended: v16+)
+You can now **save your current session** and **reload it later** with complete fidelity, including:
 
-npm or yarn
+- Shape geometry and color
+- Transformation state
+- Distance mapping settings
 
-Setup
+### How it works
+
+- When saving: The scene is serialized, and essential metadata is stored in `localStorage`.
+- On load: If saved data exists, it is deserialized and rehydrated into fully functioning shapes.
+- If no saved data is found, the app initializes with a default line primitive.
+
+This behavior is handled automatically at startup.
+
+---
+
+## GUI Controls
+
+- **Ambient Intensity Slider**: Adjusts the global scene lighting.
+- **Directional Light Slider**: Controls the strength and directionality of the key light.
+- **Distance Mapper Dropdown**: Switches between mapping functions (identity, polynomial, etc.).
+- **Save Scene Button**: Stores the current visual state.
+- **Load Scene Button**: Restores the most recently saved session.
+
+---
+
+## Installation
+
+### Prerequisites
+
+- Node.js (v16+ recommended)
+- npm or yarn
+
+### Setup
+
 Clone the repository:
 
-sh
-Copy
-Edit
+```sh
 git clone https://github.com/your-username/geometry-visualizer.git
 cd geometry-visualizer
+```
+````
+
 Install dependencies:
 
-sh
-Copy
-Edit
+```sh
 npm install
-
 # or
-
 yarn install
+```
+
 Start the development server:
 
-sh
-Copy
-Edit
+```sh
 npm run dev
-
 # or
-
 yarn dev
-Open in browser: The application should be running at http://localhost:8080/ (or another available port).
+```
 
-Usage
-Modify Distance Mapping: Use the dropdown in the GUI to switch between different distance metrics.
+Then open your browser at [http://localhost:8080](http://localhost:8080) (or the port shown in terminal).
 
-Adjust Lighting: Change ambient and directional light intensity using GUI sliders.
+---
 
-Apply Transformations: Modify vertex distances, translate faces, or change color properties dynamically.
+## Usage
 
-Fix for FaceTransformations.js:17 Error
-If you encounter the error:
+- **Modify Distance Mapping**: Use the GUI to choose your desired mapping function.
+- **Adjust Lighting**: Ambient and directional lights can be fine-tuned.
+- **Apply Transformations**: Move, rotate, or scale shape components.
+- **Save a Scene**: Click the "Save" button to serialize your shapes.
+- **Load a Scene**: Click the "Load" button to restore your previous session.
 
-javascript
-Copy
-Edit
+---
+
+## Troubleshooting
+
+### Fix for `FaceTransformations.js:17` Error
+
+If you encounter:
+
+```txt
 FaceTransformations.js:17 Uncaught TypeError: Cannot read properties of null (reading 'vertices')
-This likely means that a transformation is being applied to an undefined face. A fix involves checking if the face exists before applying transformations:
+```
 
-Modify translateFace() in FaceTransformations.js:
+It likely means the transformation is being applied to an undefined face. Apply a guard in `translateFace()`:
 
-js
-Copy
-Edit
+```js
 function translateFace(face, dx, dy) {
-if (!face || !face.vertices) {
-console.error("translateFace error: face is undefined or has no vertices.");
-return;
+  if (!face || !face.vertices) {
+    console.error("translateFace error: face is undefined or has no vertices.");
+    return;
+  }
+  face.vertices.forEach((vertex) => {
+    vertex.x += dx;
+    vertex.y += dy;
+  });
 }
-face.vertices.forEach(vertex => {
-vertex.x += dx;
-vertex.y += dy;
-});
-}
-Project Structure
-perl
-Copy
-Edit
+```
+
+---
+
+## Project Structure
+
+```
 📂 src/
-├── 📂 geometry/ # Core shape and transformation logic
-│ ├── Vertex.js # Defines a vertex: position & color
-│ ├── Edge.js # Defines edges between vertices
-│ ├── Face.js # Defines a surface formed by multiple vertices
-│ ├── ComplexShape2D.js # High-level 2D shape with transformations
+├── 📂 geometry/               # Core shape and transformation logic
+│   ├── Vertex.js
+│   ├── Edge.js
+│   ├── Face.js
+│   ├── ComplexShape2D.js
 │
-├── 📂 primitives/
-│ ├── ComplexPrimitive2D.js # Base class for 2D primitives
+├── 📂 primitives/             # Primitive definitions (line, triangle, etc.)
+│   ├── ComplexPrimitive2D.js
 │
 ├── 📂 rendering/
-│ ├── CameraManager.js # Camera setup and controls
-│ ├── LightingManager.js # Scene lighting management
-│ ├── TextureLoader.js # Texture handling (optional)
+│   ├── CameraManager.js
+│   ├── LightingManager.js
+│   ├── TextureLoader.js
 │
 ├── 📂 state/
-│ ├── stateStore.js # Centralized state management
+│   ├── stateStore.js         # Centralized state manager
+│
+├── 📂 persistence/           # Save/load logic
+│   ├── saveScene.js
+│   ├── loadScene.js
 │
 ├── 📂 utils/
-│ ├── DistanceMapping.js # Defines different distance mapping functions
-│ ├── logger.js # Utility for logging events
+│   ├── DistanceMapping.js
+│   ├── logger.js
 │
-├── index.js # Main application logic & render loop
+├── index.js                  # Main application logic and render loop
 └── ...
-Contributing
-We welcome contributions! To contribute:
+```
 
-Fork the repository
+---
 
-Create a new branch (git checkout -b feature-name)
+## Contributing
 
-Commit your changes (git commit -m "Add new feature")
+We welcome contributions!
 
-Push to the branch (git push origin feature-name)
+1. Fork the repository
+2. Create a new branch: `git checkout -b feature-name`
+3. Make changes and commit: `git commit -m "Add feature"`
+4. Push: `git push origin feature-name`
+5. Open a Pull Request
 
-Open a Pull Request
+---
 
-License
-This project is licensed under the MIT License - see the LICENSE file for details.
+## License
 
-Acknowledgments
-Built with Three.js
+MIT License — see the [LICENSE](./LICENSE) file for details.
 
-GUI powered by dat.GUI
+---
+
+## Acknowledgments
+
+- Built with [Three.js](https://threejs.org)
+- GUI powered by [dat.GUI](https://github.com/dataarts/dat.gui)
+
+```
+
+---
+
+```

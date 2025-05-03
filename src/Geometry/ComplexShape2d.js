@@ -345,4 +345,43 @@ export class ComplexShape2D extends ComplexPrimitive2D {
     this.updateCompositeSDF();
     return this;
   }
+
+  /**
+   * Static method for serializing a ComplexShape2D instance.
+   * Extracts properties necessary to reconstruct the shape.
+   * @param {ComplexShape2D} instance - The ComplexShape2D instance to serialize.
+   * @returns {Object} An object containing serializable properties.
+   */
+  static getSerializableParameters(instance) {
+    const params = {};
+    
+    // Extract vertices: for each vertex, store its position and color.
+    if (instance.vertices && Array.isArray(instance.vertices)) {
+      params.vertices = instance.vertices.map(v => ({
+        position: { x: v.position.x, y: v.position.y },
+        color: v.color
+      }));
+    }
+    
+    // Include metric if it exists
+    if (instance.metric !== undefined) {
+      params.metric = { ...instance.metric };
+    }
+    
+    // Include blend parameters and store references to blended primitives
+    if (instance.blendParams !== undefined) {
+      params.blendParams = { ...instance.blendParams };
+      if (instance.blendParams.primitives && Array.isArray(instance.blendParams.primitives)) {
+        params.blendParams.primitiveRefs = instance.blendParams.primitives.map(p => p.id);
+      }
+    }
+    
+    // Include primitive type (e.g., 'line')
+    params.primitiveType = instance.primitiveType;
+    
+    // Include the constructor name for debugging
+    params._shapeClass = instance.constructor ? instance.constructor.name : null;
+    
+    return params;
+  }
 }

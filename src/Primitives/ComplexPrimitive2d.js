@@ -116,4 +116,39 @@ export class ComplexPrimitive2D {
     // Adjust the scale if the matrix includes uniform scaling.
     this.metric.scale *= Math.sqrt((matrix.a ** 2 + matrix.d ** 2) / 2);
   }
+
+  /**
+   * Static method for serializing a ComplexPrimitive2D instance.
+   * Extracts properties necessary for later deserialization.
+   * @param {ComplexPrimitive2D} instance - The instance to serialize.
+   * @returns {Object} An object containing serializable properties.
+   */
+  static getSerializableParameters(instance) {
+    const params = {};
+
+    // Extract metric properties
+    if (instance.metric) {
+      params.metric = { ...instance.metric };
+    }
+    
+    // Extract color properties
+    if (instance.color) {
+      params.color = { ...instance.color };
+    }
+    
+    // Extract distance mapper name if available (assumes mapper has a "name" property)
+    if (instance.distanceMapper && instance.distanceMapper.name) {
+      params.distanceMapperName = instance.distanceMapper.name;
+    } else {
+      params.distanceMapperName = "identity";
+    }
+    
+    // Include any additional properties that are common to all ComplexPrimitive2D instances
+    // For instance, if you have other fields you wish to serialize, add them here.
+    
+    // Include the constructor name for debugging or deserialization purposes.
+    params._shapeClass = instance.constructor ? instance.constructor.name : null;
+    
+    return params;
+  }
 }

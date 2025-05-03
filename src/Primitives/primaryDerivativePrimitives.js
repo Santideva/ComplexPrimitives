@@ -136,6 +136,50 @@ export class DerivativePrimitive {
     }
     return this;
   }
+
+  /**
+   * Static method for serializing a derived primitive.
+   * This method extracts common properties and then adds type-specific properties.
+   * @param {DerivativePrimitive} instance - The instance to serialize.
+   * @returns {Object} An object representing the serializable properties.
+   */
+  static getSerializableParameters(instance) {
+    // Common properties for all derived primitives
+    const common = {
+      id: instance.id,
+      type: instance.type,
+      color: instance.color,
+      blendSmoothness: instance.blendSmoothness,
+      // You might include additional common properties here if needed.
+    };
+
+    // Check instance type and extract type-specific properties.
+    if (instance instanceof TrianglePrimitive) {
+      return {
+        ...common,
+        size: instance.size,
+        rotation: instance.rotation,
+        position: instance.position,
+        cornerRounding: instance.cornerRounding,
+        edgeSmoothness: instance.edgeSmoothness
+        // You can also include any additional triangle-specific parameters.
+      };
+    } else if (instance instanceof ArcPrimitive) {
+      return {
+        ...common,
+        radius: instance.radius,
+        startAngle: instance.startAngle,
+        endAngle: instance.endAngle,
+        segments: instance.segments,
+        position: instance.position,
+        thickness: instance.thickness
+        // Additional arc-specific parameters can be added here.
+      };
+    } else {
+      // Fallback: return common properties only.
+      return common;
+    }
+  }
 }
 
 /**
@@ -151,7 +195,6 @@ export class TrianglePrimitive extends DerivativePrimitive {
     this.type = 'triangle';
     
     // Triangle parameters with defaults
-    // Remove triangleType in favor of a single, parameter-driven approach.
     this.size = params.size || 1; // Defines the edge length for an equilateral triangle
     this.rotation = params.rotation || 0;
     this.position = params.position || { x: 0, y: 0 };

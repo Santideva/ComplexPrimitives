@@ -10,6 +10,10 @@ import {
   createMapping 
 } from "../utils/DistanceMapping.js";
 import { logger } from "../utils/logger.js";
+import { TrianglePrimitive, ArcPrimitive } from "../Primitives/primaryDerivativePrimitives.js";
+import { ComplexShape2D } from "../Geometry/ComplexShape2d.js";
+// Optionally, if you have a base class for fallback:
+import { ComplexPrimitive2D } from "../Primitives/ComplexPrimitive2d.js";
 
 export const stateStore = {
   // Use a Set for sessionShapes for fast insertion, deletion, and uniqueness.
@@ -296,49 +300,82 @@ export const stateStore = {
     console.log(`Garbage Collection complete. Remaining shapes in session: ${this.sessionShapes.size}`);
   },
   
-  // ---------------------------------------------------------------------------
-  // NEW: createShapeFromSerialized()
-  // ---------------------------------------------------------------------------
   /**
    * createShapeFromSerialized
-   * This factory method is used by the persistence module to reconstruct shapes 
-   * from their serialized data.
-   * 
-   * Input:
-   *  - type: A string representing the shape type ("triangle", "arc", "line", etc.)
-   *  - data: A plain object containing the serialized parameters.
-   * 
    * The method uses a switch statement to choose the appropriate constructor.
    * If a shape type is unknown, it logs a warning and returns null.
    */
   createShapeFromSerialized(type, data) {
     let shape = null;
+  
+    logger.info(`Deserializing shape of type: "${type}" with data: ${JSON.stringify(data)}`);
+  
     try {
       switch (type.toLowerCase()) {
         case "triangle":
-          // Construct a TrianglePrimitive using the data.
+          logger.debug(`Creating TrianglePrimitive with data: ${JSON.stringify(data)}`);
           shape = new TrianglePrimitive(data);
           break;
+  
         case "arc":
-          // Construct an ArcPrimitive using the data.
+          logger.debug(`Creating ArcPrimitive with data: ${JSON.stringify(data)}`);
           shape = new ArcPrimitive(data);
           break;
+  
         case "line":
-          // Use ComplexShape2D for line segments.
+          logger.debug(`Creating ComplexShape2D (line) with data: ${JSON.stringify(data)}`);
           shape = new ComplexShape2D(data);
           break;
+  
+        case "complexshape":
+          logger.debug(`Creating ComplexShape2D (complex) with data: ${JSON.stringify(data)}`);
+          shape = new ComplexShape2D(data);
+          break;
+  
+        case "complexprimitive":
+          logger.debug(`Creating ComplexPrimitive2D with data: ${JSON.stringify(data)}`);
+          shape = new ComplexPrimitive2D(data);
+          break;
+  
+        case "composite":
+          logger.debug(`Creating Composite shape with data: ${JSON.stringify(data)}`);
+          // Depending on implementation, composite shapes can be handled as ComplexShape2D or a dedicated composite class.
+          shape = new ComplexShape2D(data);
+          break;
+  
         default:
-          logger.warn(`Unknown shape type during deserialization: ${type}`);
+          logger.warn(`Unknown shape type during deserialization: "${type}". Cannot create shape.`);
           break;
       }
+  
+      if (shape) {
+        // Restore traceability metadata if available
+        if (data?.id) {
+          shape.id = data.id;  // Optionally restore ID
+          logger.info(`Shape rehydrated successfully with ID: ${data.id}`);
+        } else {
+          logger.info(`Shape rehydrated successfully without ID`);
+        }
+  
+        // Optionally attach distance mapper by name (if serialized)
+        if (data?.distanceMapperName) {
+          // Assuming getDistanceMapperByName is available in your utilities.
+          const mapper = getDistanceMapperByName(data.distanceMapperName);
+          if (mapper) {
+            shape.distanceMapper = mapper;
+            logger.debug(`Attached distance mapper: ${data.distanceMapperName}`);
+          } else {
+            logger.warn(`Distance mapper "${data.distanceMapperName}" not recognized`);
+          }
+        }
+      }
+  
     } catch (error) {
-      logger.error(`Error deserializing shape of type ${type}: ${error.message}`);
+      logger.error(`Error deserializing shape of type "${type}": ${error.message}`);
       shape = null;
     }
+  
     return shape;
   }
-  
-  // ---------------------------------------------------------------------------
-  // End of stateStore object.
-  // ---------------------------------------------------------------------------
+
 };

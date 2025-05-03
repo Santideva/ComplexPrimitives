@@ -16,7 +16,7 @@ import { TrianglePrimitive, ArcPrimitive } from "./Primitives/primaryDerivativeP
 
 // -----------------------------------------------------------------------------
 // Import Persistence Module and its functions.
-import { initializeSaveFeature, loadScene, autoSaveAndGarbageCollect } from "./persistence.js";
+import { initializeSaveFeature, saveScene, loadScene, addLoadButtonToGUI, autoSaveAndGarbageCollect } from "./persistence.js";
 
 // 1. Create Scene.
 const scene = new THREE.Scene();
@@ -56,6 +56,54 @@ function removeShapeFromScene(shape) {
   scene.remove(shape.object);
   shape.rendered = false; // Explicitly mark as not rendered.
 }
+
+// -----------------------------------------------------------------------------
+// VISUAL‐PIPELINE HELPERS for persistence.loadScene()
+// -----------------------------------------------------------------------------
+
+/** Remove every visual from the Three.js scene. */
+function clearVisuals() {
+  // 1. Remove every object from the Three.js scene
+  scene.children.slice().forEach(obj => scene.remove(obj));
+
+  // 2. If there’s a “current” primitive, take it out of the state store too
+  if (currentPrimitive) {
+    // helper from above
+    removeShapeFromScene(currentPrimitive);
+    stateStore.removeShape(currentPrimitive.instance.id || currentPrimitive.id);
+    currentPrimitive = null;
+  }
+}
+
+
+/**
+ * Build and add the mesh/line for a shape,
+ * then mark it rendered.
+ */
+function createVisual(shape) {
+  let mesh;
+
+  // Prefer createObject(), fall back to createLineObject(0)
+  if (typeof shape.createObject === 'function') {
+    mesh = shape.createObject();
+  } else if (typeof shape.createLineObject === 'function') {
+    mesh = shape.createLineObject(0);
+  }
+
+  if (!mesh) {
+    console.warn(`Shape ${shape.id} could not create a visual.`);
+    return;
+  }
+
+  shape.object   = mesh;
+  addShapeToScene(shape);   // your helper: scene.add + shape.rendered = true
+}
+
+/** Fire a final render pass. */
+function triggerRender() {
+  renderer.render(scene, camera);
+}
+
 
 // -----------------------------------------------------------------------------
 // 6. Define a function to instantiate the chosen primitive.
@@ -409,6 +457,17 @@ arcFolder.open();
 // -----------------------------------------------------------------------------
 // 1. Initialize the persistence controls (save and load buttons) in the GUI.
 initializeSaveFeature(gui);  // This adds a save button (and optionally a load button if implemented).
+const loadController = {
+  loadState: async () => {
+    const success = await loadScene({ clearVisuals, createVisual, triggerRender });
+    alert(success
+      ? "Scene loaded successfully!"
+      : "Failed to load scene. See console for details.");
+  }
+};
+
+gui.add(loadController, 'loadState').name('Load Saved Scene');
+
 
 // 2. Optionally, you can also set up a keyboard shortcut or additional GUI control for loading.
 // (For example, if you implement addLoadButtonToGUI() in persistence.js, you can call it here.)

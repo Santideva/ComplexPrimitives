@@ -1,17 +1,11 @@
 // persistence.js
 
-// -----------------------------------------------------------------------------
-// Module Dependencies
-// -----------------------------------------------------------------------------
-// Dexie is used to interact with IndexedDB.
-// stateStore holds the current session shapes and related state.
-// logger provides logging capabilities.
-// We also import ComplexShape2D to check for fallback low-level serialization
-// in case a shape does not implement getSerializableParameters().
 import Dexie from 'dexie';
 import { stateStore } from './state/stateStore.js';
 import { logger } from './utils/logger.js';
 import { ComplexShape2D } from './Geometry/ComplexShape2d.js';
+import { ComplexPrimitive2D } from './Primitives/ComplexPrimitive2d.js';
+import { TrianglePrimitive, ArcPrimitive } from './Primitives/primaryDerivativePrimitives.js';
 
 // =============================================================================
 // 1. SETUP: Initialize Dexie Database and Define Schema
@@ -30,7 +24,107 @@ db.version(1).stores({
 });
 
 // =============================================================================
-// 2. CAPTURE & FILTER FUNCTIONS
+// 2. TYPE DETECTION AND UTILITY FUNCTIONS
+// =============================================================================
+
+/**
+ * determineShapeType
+ * Robustly determines the type of shape, using multiple strategies.
+ * The order is:
+ * 1. Specific primitives: TrianglePrimitive and ArcPrimitive.
+ * 2. ComplexShape2D: if it is a line segment then 'line', otherwise 'complexShape'.
+ * 3. ComplexPrimitive2D.
+ * 4. Composite shapes (if blendParams exists).
+ * 5. Fallback to an explicit shape.type (if provided) or the constructor name.
+ */
+function determineShapeType(shape) {
+  let resolvedType = '';
+
+  // 1. Specific primitives
+  if (shape instanceof TrianglePrimitive) {
+    resolvedType = 'triangle';
+    logger.debug(`Shape ID ${shape.id || 'unknown'}: Detected as TrianglePrimitive.`);
+  } else if (shape instanceof ArcPrimitive) {
+    resolvedType = 'arc';
+    logger.debug(`Shape ID ${shape.id || 'unknown'}: Detected as ArcPrimitive.`);
+  }
+  // 2. ComplexShape2D handling
+  else if (shape instanceof ComplexShape2D) {
+    resolvedType = shape.isLineSegment ? 'line' : 'complexShape';
+    logger.debug(`Shape ID ${shape.id || 'unknown'}: Detected as ComplexShape2D (${resolvedType}).`);
+  }
+  // 3. ComplexPrimitive2D handling
+  else if (shape instanceof ComplexPrimitive2D) {
+    resolvedType = 'complexPrimitive';
+    logger.debug(`Shape ID ${shape.id || 'unknown'}: Detected as ComplexPrimitive2D.`);
+  }
+  // 4. Composite/tessellation shapes based on blendParams
+  else if (shape.blendParams && shape.blendParams.primitives && Array.isArray(shape.blendParams.primitives)) {
+    resolvedType = 'composite';
+    logger.debug(`Shape ID ${shape.id || 'unknown'}: Detected as composite (via blendParams).`);
+  }
+  // 5. Fallback: if an explicit type property exists, then use it
+  else if (shape.type && typeof shape.type === 'string') {
+    resolvedType = shape.type;
+    logger.debug(`Shape ID ${shape.id || 'unknown'}: Falling back to explicit shape.type: ${resolvedType}.`);
+  }
+  // 6. Check constructor name as a last resort
+  else if (shape.constructor && shape.constructor.name) {
+    resolvedType = shape.constructor.name.toLowerCase();
+    logger.debug(`Shape ID ${shape.id || 'unknown'}: Falling back to constructor name: ${resolvedType}.`);
+  }
+  // 7. Last resort generic type
+  else {
+    resolvedType = 'generic';
+    logger.debug(`Shape ID ${shape.id || 'unknown'}: Unable to determine type. Defaulting to generic.`);
+  }
+
+  logger.debug(`Final determined type for shape ID ${shape.id || 'unknown'}: ${resolvedType}`);
+  return resolvedType;
+}
+
+/**
+ * extractBasicParameters
+ * Extracts fundamental parameters from any shape for fallback serialization.
+ */
+function extractBasicParameters(shape) {
+  const params = {};
+
+  // Extract universal properties
+  if (shape.position !== undefined) {
+    params.position = {
+      x: shape.position.x || 0,
+      y: shape.position.y || 0
+    };
+  }
+
+  if (shape.size !== undefined) params.size = shape.size;
+  if (shape.rotation !== undefined) params.rotation = shape.rotation;
+
+  if (shape.color !== undefined) {
+    params.color = { ...shape.color };
+  }
+
+  // Add constructor name for better deserialization
+  params._shapeClass = shape.constructor ? shape.constructor.name : null;
+
+  // Extract common shape-specific properties
+  if (shape.type === 'triangle' || shape instanceof TrianglePrimitive) {
+    if (shape.cornerRounding !== undefined) params.cornerRounding = shape.cornerRounding;
+    if (shape.edgeSmoothness !== undefined) params.edgeSmoothness = [...shape.edgeSmoothness];
+  } else if (shape.type === 'arc' || shape instanceof ArcPrimitive) {
+    if (shape.radius !== undefined) params.radius = shape.radius;
+    if (shape.startAngle !== undefined) params.startAngle = shape.startAngle;
+    if (shape.endAngle !== undefined) params.endAngle = shape.endAngle;
+    if (shape.segments !== undefined) params.segments = shape.segments;
+    if (shape.thickness !== undefined) params.thickness = shape.thickness;
+  }
+
+  return params;
+}
+
+// =============================================================================
+// 3. CAPTURE & FILTER FUNCTIONS
 // =============================================================================
 
 /**
@@ -43,10 +137,11 @@ export function captureVisualState() {
   try {
     stateStore.sessionShapes.forEach(shape => {
       try {
-        if (shape.rendered === true) {
-          shape.persistent = true;
-          flaggedCount++;
-        }
+    // Skip the default shape with ID of 1
+    if (shape.rendered === true && shape.id !== 1) {
+      shape.persistent = true;
+      flaggedCount++;
+    }
       } catch (error) {
         logger.error(`Error flagging shape ${shape.id}: ${error.message}`);
       }
@@ -77,16 +172,17 @@ export function getOrderedPersistentShapes() {
 }
 
 // =============================================================================
-// 3. SERIALIZATION FUNCTION
+// 4. SERIALIZATION FUNCTION
 // =============================================================================
 
 /**
  * serializeShapesForStorage
  * Creates a serializable representation of the persistent shapes along with scene metadata.
- * It uses the high-level method getSerializableParameters() if available.
- * Otherwise, it falls back to low-level serialization logic based on common properties
- * (such as vertices for line segments). This fallback is particularly useful for shapes
- * like ComplexShape2D where we can extract vertex data.
+ * It first checks if the shape's constructor has a static getSerializableParameters method.
+ * Otherwise, it falls back in this order:
+ * 1. If the shape is an instance of ComplexShape2D, extract its vertices, metric, and blend parameters.
+ * 2. Else if the shape is an instance of ComplexPrimitive2D, extract its metric and color.
+ * 3. Else, fall back to generic extraction (e.g., size, position, rotation, and color).
  */
 export function serializeShapesForStorage() {
   try {
@@ -97,75 +193,82 @@ export function serializeShapesForStorage() {
       return null;
     }
 
-    // For each shape, create a serializable record.
+    logger.info(`Starting serialization for ${orderedShapes.length} shapes`);
+
     const serializableShapes = orderedShapes.map(shape => {
       try {
         let parameters = {};
+        const shapeId = shape.id || 'unknown-id';
+        const shapeType = determineShapeType(shape);
 
-        // High-level serialization: use the shape's own method if provided.
-        if (typeof shape.getSerializableParameters === 'function') {
-          parameters = shape.getSerializableParameters();
-        } else {
-          // Low-level fallback:
-          // If the shape is an instance of ComplexShape2D, we assume it has vertices.
-          if (shape instanceof ComplexShape2D && shape.vertices) {
-            parameters.vertices = shape.vertices.map(v => ({
-              position: { x: v.position.x, y: v.position.y },
-              // If color information is needed, include it.
-              color: v.color
-            }));
-            // Also include any basic metric information if available.
-            if (shape.metric !== undefined) {
-              parameters.metric = { ...shape.metric };
-            }
-            // Optionally, include blend parameters.
-            if (shape.blendParams !== undefined) {
-              parameters.blendParams = { ...shape.blendParams };
-            }
-          } else {
-            // Generic fallback for other shapes: attempt to extract common properties.
-            if (shape.size !== undefined) parameters.size = shape.size;
-            if (shape.position !== undefined) {
-              parameters.position = { 
-                x: shape.position.x || 0, 
-                y: shape.position.y || 0 
-              };
-            }
-            if (shape.rotation !== undefined) parameters.rotation = shape.rotation;
-            if (shape.color !== undefined) parameters.color = { ...shape.color };
+        if (!shapeType || shapeType === 'generic') {
+          logger.warn(`Shape with ID ${shapeId} has no defined type. Using ${shapeType}`);
+        }
 
-            // Type-specific fallback:
-            if (shape.type === 'triangle') {
-              if (shape.cornerRounding !== undefined) parameters.cornerRounding = shape.cornerRounding;
-              if (shape.edgeSmoothness !== undefined) parameters.edgeSmoothness = [...shape.edgeSmoothness];
-            } else if (shape.type === 'arc') {
-              if (shape.radius !== undefined) parameters.radius = shape.radius;
-              if (shape.startAngle !== undefined) parameters.startAngle = shape.startAngle;
-              if (shape.endAngle !== undefined) parameters.endAngle = shape.endAngle;
-              if (shape.segments !== undefined) parameters.segments = shape.segments;
-              if (shape.thickness !== undefined) parameters.thickness = shape.thickness;
+        // 1. Use static getSerializableParameters if defined on the constructor
+        if (shape.constructor && typeof shape.constructor.getSerializableParameters === 'function') {
+          try {
+            logger.debug(`Using static getSerializableParameters from ${shape.constructor.name} for shape ${shapeId} of type ${shapeType}`);
+            parameters = shape.constructor.getSerializableParameters(shape);
+          } catch (serializeError) {
+            logger.warn(`Error in static serialization for ${shapeId}: ${serializeError.message}`);
+            parameters = extractBasicParameters(shape);
+          }
+        }
+        // 2. Fallback for ComplexShape2D if static method is not defined
+        else if (shape instanceof ComplexShape2D && shape.vertices) {
+          logger.info(`Serializing ComplexShape2D with ID ${shapeId}`);
+          parameters.vertices = shape.vertices.map(v => ({
+            position: { x: v.position.x, y: v.position.y },
+            color: v.color
+          }));
+          if (shape.metric !== undefined) {
+            parameters.metric = { ...shape.metric };
+          }
+          if (shape.blendParams !== undefined) {
+            parameters.blendParams = { ...shape.blendParams };
+            // Store references to blended primitives
+            if (shape.blendParams.primitives && Array.isArray(shape.blendParams.primitives)) {
+              parameters.blendParams.primitiveRefs = shape.blendParams.primitives.map(p => p.id);
             }
           }
         }
+        // 3. Fallback for ComplexPrimitive2D
+        else if (shape instanceof ComplexPrimitive2D) {
+          logger.info(`Serializing ComplexPrimitive2D with ID ${shapeId}`);
+          parameters.metric = { ...shape.metric };
+          parameters.color = { ...shape.color };
+          if (shape.distanceMapper && shape.distanceMapper.name) {
+            parameters.distanceMapper = shape.distanceMapper.name;
+          }
+        }
+        // 4. Generic fallback
+        else {
+          logger.warn(`Using generic fallback serialization for shape ${shapeId} of type ${shapeType}`);
+          parameters = extractBasicParameters(shape);
+        }
 
-        // Return a plain object representing the shape.
+        // Always include the constructor name for better type restoration
+        parameters._shapeClass = shape.constructor ? shape.constructor.name : null;
+
+        logger.debug(`Shape ${shapeId} of type ${shapeType} serialized with parameters: ${JSON.stringify(parameters)}`);
+
         return {
-          id: shape.id,
-          type: shape.type || 'unknown',
+          id: shapeId,
+          type: shapeType,
           createdAt: shape.createdAt,
           data: parameters,
-          // Serialize the distance mapper by saving its name or identifier.
-          distanceMapperName: shape.distanceMapperName || 
-                              (shape.distanceMapper && shape.distanceMapper.name) || 
-                              'identity'
+          distanceMapperName:
+            shape.distanceMapperName ||
+            (shape.distanceMapper && shape.distanceMapper.name) ||
+            'identity'
         };
       } catch (shapeError) {
-        logger.error(`Error serializing shape ${shape.id}: ${shapeError.message}`);
+        logger.error(`Error serializing shape ${shape.id}: ${shapeError.message}`, shapeError);
         return null;
       }
     }).filter(shape => shape !== null);
 
-    // Prepare scene-level metadata (e.g., mapping configuration, version, timestamp).
     const sceneMetadata = {
       version: '1.0',
       timestamp: Date.now(),
@@ -186,13 +289,13 @@ export function serializeShapesForStorage() {
     logger.info(`Successfully serialized ${serializableShapes.length} shapes`);
     return { shapes: serializableShapes, metadata: sceneMetadata };
   } catch (error) {
-    logger.error(`Failed to serialize shapes: ${error.message}`);
+    logger.error(`Failed to serialize shapes: ${error.message}`, error);
     return null;
   }
 }
 
 // =============================================================================
-// 4. SAVE AND LOAD FUNCTIONS USING DEXIE
+// 5. SAVE AND LOAD FUNCTIONS USING DEXIE
 // =============================================================================
 
 /**
@@ -237,61 +340,98 @@ export async function saveScene(sceneName = 'default') {
 
 /**
  * loadScene
- * Loads the saved scene from Dexie, reconstructs the shapes, and restores scene metadata.
- * This function assumes that stateStore provides methods for clearing the current scene
- * and for creating shapes from serialized data.
+ * Loads the saved scene from IndexedDB via Dexie, reconstructs the shapes, 
+ * and restores scene metadata.
  */
-export async function loadScene() {
+// Enhanced loadScene function with proper visual rendering support
+export async function loadScene({ clearVisuals, createVisual, triggerRender }) {
   try {
-    // Retrieve all shape records.
+    // 1️⃣ Clear in-memory shapes
+    stateStore.clear();
+
+    // 2️⃣ Clear all Three.js visuals
+    clearVisuals();
+
+    // 3️⃣ Fetch saved shapes and metadata
     const savedShapes = await db.shapes.toArray();
-    // Retrieve scene metadata.
-    const metaRecord = await db.metadata.get('scene');
+    const metaRecord  = await db.metadata.get('scene');
 
     if (!savedShapes || savedShapes.length === 0) {
       logger.warn("No scene data found in IndexedDB");
       return false;
     }
 
-    // Clear the current stateStore scene.
-    stateStore.clear();
-
-    // For each saved shape, reconstruct the shape using stateStore's factory method.
-    savedShapes.forEach(record => {
-      // Assumes stateStore.createShapeFromSerialized(type, data) exists.
+    // 4️⃣ First pass: deserialize into stateStore and create visuals
+    const shapesMap = new Map();
+    for (const record of savedShapes) {
       const shape = stateStore.createShapeFromSerialized(record.type, record.data);
-      if (shape) {
-        // Ensure the shape's id and createdAt are preserved.
-        shape.id = record.id;
-        shape.createdAt = record.createdAt;
-        // Optionally, set distance mapper info if needed.
-        shape.distanceMapperName = record.distanceMapperName;
-        stateStore.addShape(shape);
+      if (!shape) {
+        logger.warn(`Failed to deserialize shape record ${record.id}`);
+        continue;
       }
-    });
 
-    // Restore scene-level metadata (e.g., mapping configuration).
-    if (metaRecord && metaRecord.value) {
-      const meta = metaRecord.value;
-      // Update stateStore mapping configuration as needed.
-      stateStore.selectedMappingType = meta.mappingConfig.selectedMappingType;
-      stateStore.blendFactor = meta.mappingConfig.blendFactor;
-      stateStore.timeFrequency = meta.mappingConfig.timeFrequency;
-      stateStore.recursionLimit = meta.mappingConfig.recursionLimit;
-      stateStore.amplitude = meta.mappingConfig.amplitude;
-      // Additional metadata restoration can be added here.
+      // restore identifiers and timestamp
+      shape.id        = record.id;
+      shape.createdAt = record.createdAt;
+
+      // restore any custom mapper name (optional)
+      if (record.distanceMapperName) {
+        shape.distanceMapperName = record.distanceMapperName;
+      }
+
+      // add to session
+      stateStore.addShape(shape);
+      shapesMap.set(record.id, shape);
+
+      // delegate actual mesh/line creation and scene.add
+      createVisual(shape);
+
+      logger.debug(`Loaded and visualized shape ${shape.id} of type ${record.type}`);
     }
 
-    logger.info(`Scene '${metaRecord?.value?.sceneName || 'default'}' loaded successfully from IndexedDB`);
+    // 5️⃣ Second pass: reconnect composite primitives by ID
+    for (const record of savedShapes) {
+      const refIds = record.data?.blendParams?.primitiveRefs;
+      if (!refIds || !Array.isArray(refIds)) continue;
+
+      const composite = shapesMap.get(record.id);
+      if (composite && typeof composite.addBlendPrimitive === 'function') {
+        for (const pid of refIds) {
+          const prim = shapesMap.get(pid);
+          if (prim) {
+            composite.addBlendPrimitive(prim);
+            logger.debug(`Reconnected primitive ${pid} to composite ${record.id}`);
+          } else {
+            logger.warn(`Primitive ${pid} not found for composite ${record.id}`);
+          }
+        }
+        // update SDF and visuals
+        if (typeof composite.updateCompositeSDF === 'function') {
+          composite.updateCompositeSDF();
+          createVisual(composite);
+        }
+      }
+    }
+
+    // 6️⃣ Restore global mapping configuration
+    if (metaRecord?.value?.mappingConfig) {
+      stateStore.updateMappingConfig(metaRecord.value.mappingConfig);
+      logger.debug("Restored mapping configuration from metadata");
+    }
+
+    // 7️⃣ Final render
+    triggerRender();
+    logger.info(`Scene '${metaRecord?.value?.sceneName || 'default'}' loaded successfully`);
     return true;
+
   } catch (error) {
-    logger.error(`Failed to load scene: ${error.message}`);
+    logger.error(`Failed to load scene: ${error.message}`, error);
     return false;
   }
 }
 
 // =============================================================================
-// 5. END-OF-SESSION PERSISTENCE & GARBAGE COLLECTION
+// 6. END-OF-SESSION PERSISTENCE & GARBAGE COLLECTION
 // =============================================================================
 
 /**
@@ -325,7 +465,7 @@ export async function autoSaveAndGarbageCollect() {
 }
 
 // =============================================================================
-// 6. RESET PERSISTENCE FLAGS FUNCTION
+// 7. RESET PERSISTENCE FLAGS FUNCTION
 // =============================================================================
 
 /**
@@ -350,7 +490,7 @@ export function resetPersistenceFlags() {
 }
 
 // =============================================================================
-// 7. UI INTEGRATION: DAT.GUI AND STANDALONE BUTTON
+// 8. UI INTEGRATION: DAT.GUI AND STANDALONE BUTTON
 // =============================================================================
 
 /**
@@ -404,3 +544,15 @@ export function initializeSaveFeature(gui) {
   setupSaveButton();
   logger.info("Save feature initialized");
 }
+
+export function addLoadButtonToGUI(gui, { clearVisuals, createVisual, triggerRender }) {
+  const folder = gui.addFolder('Load');
+  folder.add({
+    loadState: async () => {
+      const ok = await loadScene({ clearVisuals, createVisual, triggerRender });
+      alert(ok ? "Loaded!" : "Load failed; see console.");
+    }
+  }, 'loadState').name('Load Saved Scene');
+  folder.open();
+}
+
