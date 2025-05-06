@@ -47,6 +47,13 @@ export class ComplexShape2D extends ComplexPrimitive2D {
     this._logVertexPositions('Initial');
   }
 
+  /**
+   * Return a brand-new clone of this ComplexShape2D with identical parameters
+   */
+  clone() {
+    return new ComplexShape2D(this._params);
+  }
+  
   // Helper method to log vertex positions
   _logVertexPositions(prefix) {
     logger.debug(`${prefix} Vertex Positions: Vertex A: (${this.vertices[0].position.x}, ${this.vertices[0].position.y}), Vertex B: (${this.vertices[1].position.x}, ${this.vertices[1].position.y})`);

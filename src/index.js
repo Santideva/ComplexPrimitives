@@ -10,6 +10,9 @@ import { logger } from "./utils/logger.js";
 import { createPolynomialMapping, distanceMappingRegistry } from "./utils/DistanceMapping.js";
 import { translateFace } from "./Geometry/FaceTransformations.js";
 import * as dat from "dat.gui";
+import * as meshCreator from "./utils/meshCreator.js";
+
+
 
 // Import derived primitives (Triangle and Arc).
 import { TrianglePrimitive, ArcPrimitive } from "./Primitives/primaryDerivativePrimitives.js";
@@ -17,6 +20,8 @@ import { TrianglePrimitive, ArcPrimitive } from "./Primitives/primaryDerivativeP
 // -----------------------------------------------------------------------------
 // Import Persistence Module and its functions.
 import { initializeSaveFeature, saveScene, loadScene, addLoadButtonToGUI, autoSaveAndGarbageCollect } from "./persistence.js";
+import { SchurComposition } from "./Primitives/SchurComposition.js";
+
 
 // 1. Create Scene.
 const scene = new THREE.Scene();
@@ -29,6 +34,48 @@ const camera = cameraManager.getCamera();
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.getElementById("viewport").appendChild(renderer.domElement);
+
+
+// ─── Schur‐UI DOM references ────────────────────────────────────────────────
+const baseSelect = document.getElementById('base-shapes');
+const composeBtn = document.getElementById('compose-btn');
+if (!baseSelect || !composeBtn) {
+  console.error("Missing #base-shapes or #compose-btn in HTML");
+}
+
+const schurParams = {
+  baseIds:    [],         // will be filled by the <select>
+  operations: ['union'],  // etc…
+  weight:    8,
+  rotation:   0,
+  scale:      1,
+  posX:       0,
+  posY:       0
+};
+
+
+// A helper to refresh the <select> options whenever shapes change:
+function refreshBaseShapeOptions() {
+  baseSelect.innerHTML = '';
+  stateStore.getShapes().forEach(shape => {
+    const opt = document.createElement('option');
+    opt.value = shape.id;
+    opt.textContent = `#${shape.id} (${shape.constructor.name})`;
+
+    baseSelect.appendChild(opt);
+  });
+}
+
+// initial population
+refreshBaseShapeOptions();
+// keep it up-to-date
+stateStore.onVisualUpdate(refreshBaseShapeOptions);
+
+baseSelect.addEventListener('change', () => {
+  schurParams.baseIds = Array.from(baseSelect.selectedOptions)
+                             .map(opt => Number(opt.value));
+});
+composeBtn.addEventListener('click', instantiateSchur);
 
 // 4. Controls.
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -108,6 +155,7 @@ function triggerRender() {
 // -----------------------------------------------------------------------------
 // 6. Define a function to instantiate the chosen primitive.
 let currentPrimitive = null;  // Global variable for currently active primitive.
+let currentSchur = null;
 
 function instantiatePrimitive(type) {
   // Remove any existing primitive using our helper.
@@ -131,6 +179,7 @@ function instantiatePrimitive(type) {
         logger.info("Line segment shape instantiated.");
         currentPrimitive = { instance: lineSegmentShape, type: "line" };
         currentPrimitive.object = lineSegmentShape.createLineObject();
+        refreshBaseShapeOptions();
       }
       break;
     case "triangle":
@@ -178,6 +227,129 @@ function instantiatePrimitive(type) {
   // Use our helper to add the new object to the scene.
   addShapeToScene(currentPrimitive);
 }
+
+/**
+ * Instantiate a SchurComposition from user‐selected IDs & params.
+ */
+function instantiateSchur() {
+  // Remove old Schur if any
+  if (currentSchur) {
+    removeShapeFromScene(currentSchur);
+    stateStore.removeShape(currentSchur.id);
+    currentSchur = null;
+  }
+
+  // Gather base shapes
+  const bases = schurParams.baseIds
+    .map(id => stateStore.getShape(id))
+    .filter(s => !!s);
+  if (bases.length < 2) {
+    alert("Pick at least 2 shapes to compose.");
+    return;
+  }
+
+  // Create new SchurComposition
+  const schur = new SchurComposition({
+    shapes: bases,
+    operations: schurParams.operations,
+    weights: [ schurParams.weight ],
+    rotation: schurParams.rotation,
+    scale: schurParams.scale,
+    position: { x: schurParams.posX, y: schurParams.posY },
+    blendSmoothness: schurParams.weight,     // fallback
+    color: { h: 0, s: 0, l: 0.8, a: 1 }          // or pick from UI
+  });
+
+  stateStore.addShape(schur);
+  // Track dependencies for cycle‐guard and persistence
+  refreshBaseShapeOptions();
+  stateStore.dependencyMap.set(
+    schur.id,
+    new Set(schurParams.baseIds)
+  );
+
+  // Render
+  // ─── Render via meshCreator based on user choice ────────────────────────
+  // inside instantiateSchur(), right after gathering `schur` and before scene.add:
+  let threeObj;
+  const bounds2D = [ -2, -2, 2, 2 ];
+  const bounds3D = [ -2, -2, -2, 2, 2, 2 ];
+
+  switch (renderParams.method) {
+    case "contours (2D)": {
+      // marchingSquares + buildLineSegments
+      const loops = meshCreator.marchingSquares(
+        pt => schur.computeSDF(pt),
+        bounds2D, 150
+      );
+      const geometry = meshCreator.buildLineSegments(loops);
+      threeObj = new THREE.LineSegments(
+        geometry,
+        new THREE.LineBasicMaterial({ color: 0x3366ff })
+      );
+      break;
+    }
+
+    case "fill (2D)": {
+      // get zero‐level loops & triangulate
+      const loops = meshCreator.marchingSquares(
+        pt => schur.computeSDF(pt),
+        bounds2D, 150
+      );
+      threeObj = meshCreator.createContourMesh(loops);
+      break;
+    }
+
+    case "arcs": {
+      // extract points → fitArcs → createArcObject
+      const loops = meshCreator.marchingSquares(
+        pt => schur.computeSDF(pt),
+        bounds2D, 150
+      );
+      const pts = loops.flat();
+      const arcs = meshCreator.fitArcs(pts);
+      threeObj = meshCreator.createArcObject(arcs, { segments: 64 });
+      break;
+    }
+
+    case "surface (3D)": {
+      // marchingCubes for a full 3D surface
+      threeObj = meshCreator.createSDFMesh(
+        schur,
+        bounds3D,
+        { resolution: 50, wireframe: false, isoLevel: 0 }
+      );
+      break;
+    }
+
+    default:
+      console.warn(`Unknown render method: ${renderParams.method}`);
+      threeObj = new THREE.Group();
+  }
+
+  // finally:
+  schur.object   = threeObj;
+  scene.add(threeObj);
+  schur.rendered = true;
+
+}
+
+
+// ─── Hook up HTML controls to Schur logic ───────────────────────────────────
+baseSelect.addEventListener('change', () => {
+  // Update the array of selected IDs
+  schurParams.baseIds = Array.from(baseSelect.selectedOptions)
+                             .map(opt => Number(opt.value));
+});
+
+composeBtn.addEventListener('click', () => {
+  if (schurParams.baseIds.length < 2) {
+    alert("Select at least two base shapes.");
+    return;
+  }
+  instantiateSchur();
+});
+
 
 // Initially instantiate the line primitive.
 instantiatePrimitive("line");
@@ -451,6 +623,67 @@ arcFolder.add(arcParams, "posY", -5, 5).onChange((value) => {
   }
 });
 arcFolder.open();
+
+// --- Add Schur Composition controls
+const schurFolder = gui.addFolder("Schur Composition");
+
+// 1️⃣ Multi‐select for base shapes (ids)
+const availableIds = () => stateStore.getShapes().map(s => s.id);
+
+
+schurFolder.add(schurParams, "operations", ["union","intersection","difference"])
+           .name("Operation").onChange(val => schurParams.operations = [val]);
+           schurFolder.add(schurParams, "weight", 0, 10).name("Smoothness");
+schurFolder.add(schurParams, "rotation", 0, Math.PI*2).name("Rotation");
+schurFolder.add(schurParams, "scale", 0.1, 5).name("Scale");
+schurFolder.add(schurParams, "posX", -5, 5).name("Translate X");
+schurFolder.add(schurParams, "posY", -5, 5).name("Translate Y");
+schurFolder.open();
+
+// after schurFolder.open();
+schurFolder.__controllers.forEach(ctrl =>
+  ctrl.onChange(() => {
+    if (!currentSchur) return;
+
+    // Pull the up‐to‐date params out of schurParams
+    const {
+      baseIds,
+      operations,
+      weights,
+      rotation,
+      scale,
+      posX,
+      posY
+    } = schurParams;
+
+    // Tell the existing SchurComposition to update
+    currentSchur.updateParameters({
+      shapes: baseIds.map(id => stateStore.getShape(id)),
+      operations,
+      weights,
+      rotation,
+      scale,
+      position: { x: posX, y: posY }
+    });
+
+    // Re‐render it
+    removeShapeFromScene(currentSchur);
+    currentSchur.object = currentSchur.createObject();
+    addShapeToScene(currentSchur);
+  })
+);
+
+// ─── Pick how to render the composed shape ─────────────────────────────────
+const renderMethods = ["contours (2D)", "fill (2D)", "arcs", "surface (3D)"];
+const renderParams  = { method: renderMethods[0] };
+
+schurFolder.add(renderParams, "method", renderMethods)
+  .name("Render As")
+  .onChange(() => {
+    if (currentSchur) instantiateSchur();
+  });
+
+
 
 // -----------------------------------------------------------------------------
 // Integration of Persistence Functionality.

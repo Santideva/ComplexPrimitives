@@ -15,11 +15,31 @@ import { ComplexShape2D } from "../Geometry/ComplexShape2d.js";
 // Optionally, if you have a base class for fallback:
 import { ComplexPrimitive2D } from "../Primitives/ComplexPrimitive2d.js";
 
+
 export const stateStore = {
   // Use a Set for sessionShapes for fast insertion, deletion, and uniqueness.
   sessionShapes: new Set(),
   visualUpdateCallbacks: [], // Storage for visual update callbacks
-  
+
+  dependencyMap: new Map(),
+
+  // — Helpers for dependency tracking —
+  _updateDependencies(shapeId, childIds = []) {
+      this.dependencyMap.set(shapeId, childIds);
+    },
+    _hasCycle(startId, visited = new Set(), stack = new Set()) {
+        if (stack.has(startId)) return true;
+        if (visited.has(startId)) return false;
+        visited.add(startId);
+        stack.add(startId);
+        for (const childId of this.dependencyMap.get(startId) || []) {
+          if (this._hasCycle(childId, visited, stack)) return true;
+        }
+        stack.delete(startId);
+        return false;
+       },
+
+
   // New mapping configuration properties
   selectedMappingType: "polynomial", // Default mapping type
   baseMapping: identityMapping, // Default base mapping function
@@ -148,6 +168,11 @@ export const stateStore = {
   },
   
   triggerVisualUpdate(shapeId) {
+      // Cycle guard
+      if (this._hasCycle(shapeId)) {
+      console.error(`Cycle detected in dependencies of shape ${shapeId}; update aborted.`);
+      return;
+      }    
     logger.debug(`Triggering visual update for shape ${shapeId}`);
     this.visualUpdateCallbacks.forEach(callback => {
       try {
@@ -207,6 +232,11 @@ export const stateStore = {
       
       shape.addBlendPrimitive(primitive, operation);
       console.log(`Added primitive ${primitiveId} to shape ${shapeId} with operation: ${operation || 'current'}`);
+      const shape = this.getShape(shapeId);
+      this._updateDependencies(
+        shapeId,
+        shape.blendParams.primitives.map(p => p.id)
+      );      
       this.triggerVisualUpdate(shape.id);
       return true;
     }
@@ -221,6 +251,10 @@ export const stateStore = {
         shape.blendParams.primitives.splice(index, 1);
         shape.updateCompositeSDF();
         console.log(`Removed primitive ${primitiveId} from shape ${shapeId}`);
+        this._updateDependencies(
+          shapeId,
+          shape.blendParams.primitives.map(p => p.id)
+        );
         this.triggerVisualUpdate(shape.id);
         return true;
       }
@@ -233,6 +267,7 @@ export const stateStore = {
     if (shape && typeof shape.clearBlendPrimitives === 'function') {
       shape.clearBlendPrimitives();
       console.log(`Cleared all blend primitives from shape ${shapeId}`);
+      this._updateDependencies(shapeId, []);      
       this.triggerVisualUpdate(shape.id);
       return true;
     }
@@ -263,6 +298,9 @@ export const stateStore = {
     if (shape && primitive && typeof shape.setBasePrimitive === 'function') {
       shape.setBasePrimitive(primitive);
       console.log(`Set ${primitiveId} as base primitive for shape ${shapeId}`);
+      const shape = this.getShape(shapeId);
+      const deps  = [primitiveId, ...shape.blendParams.primitives.map(p => p.id)];
+      this._updateDependencies(shapeId, deps);      
       this.triggerVisualUpdate(shapeId);
       return true;
     }

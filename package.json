@@ -13,6 +13,7 @@
   "license": "ISC",
   "dependencies": {
     "dat.gui": "^0.7.9",
+    "delaunator": "^5.0.1",
     "dexie": "^4.0.11",
     "three": "^0.175.0"
   },

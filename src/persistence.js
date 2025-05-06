@@ -200,6 +200,12 @@ export function serializeShapesForStorage() {
         let parameters = {};
         const shapeId = shape.id || 'unknown-id';
         const shapeType = determineShapeType(shape);
+        let dependencyRefs = null;
+        
+        // 1. Gather SchurComposition dependencies if applicable
+        if (shapeType === 'schur-composition') {
+          dependencyRefs = Array.from(stateStore.dependencyMap.get(shapeId) || []);
+        }        
 
         if (!shapeType || shapeType === 'generic') {
           logger.warn(`Shape with ID ${shapeId} has no defined type. Using ${shapeType}`);
@@ -261,7 +267,11 @@ export function serializeShapesForStorage() {
           distanceMapperName:
             shape.distanceMapperName ||
             (shape.distanceMapper && shape.distanceMapper.name) ||
-            'identity'
+            'identity',
+          // existing blend refs
+          primitiveRefs: parameters.blendParams?.primitiveRefs || [],
+          // new Schur dependency refs
+          dependencyRefs:  dependencyRefs                      
         };
       } catch (shapeError) {
         logger.error(`Error serializing shape ${shape.id}: ${shapeError.message}`, shapeError);
@@ -365,6 +375,9 @@ export async function loadScene({ clearVisuals, createVisual, triggerRender }) {
     const shapesMap = new Map();
     for (const record of savedShapes) {
       const shape = stateStore.createShapeFromSerialized(record.type, record.data);
+      shape.id        = record.id;
+      shape.createdAt = record.createdAt;
+            
       if (!shape) {
         logger.warn(`Failed to deserialize shape record ${record.id}`);
         continue;
@@ -411,6 +424,15 @@ export async function loadScene({ clearVisuals, createVisual, triggerRender }) {
           createVisual(composite);
         }
       }
+  // 5.b: restore SchurComposition dependency graph
+  if (record.type === 'schur-composition' && Array.isArray(record.dependencyRefs)) {
+    // stateStore.dependencyMap is a Map<schurId, Set<childIds>>
+    stateStore._updateDependencies(record.id, record.dependencyRefs);
+    logger.debug(
+      `Reconnected SchurComposition deps for ${record.id}: [${record.dependencyRefs.join(', ')}]`
+    );
+  }
+
     }
 
     // 6️⃣ Restore global mapping configuration

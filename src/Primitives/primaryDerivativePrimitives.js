@@ -208,6 +208,8 @@ export class TrianglePrimitive extends DerivativePrimitive {
     this._initializeTriangle();
     
     logger.info(`Created TrianglePrimitive with id: ${this.id}`);
+    // ── store original params for cloning ─────────────────────
+    this._params = { ...params };    
   }
 
   /**
@@ -371,6 +373,13 @@ export class TrianglePrimitive extends DerivativePrimitive {
     logger.info(`Updated TrianglePrimitive ${this.id} with new parameters`);
     return this;
   }
+  // ←— INSERT AT END OF CLASS:
+  clone() {
+    const copy = new TrianglePrimitive(this._params);
+    copy.blendSmoothness = this.blendSmoothness;
+    copy.color           = { ...this.color };
+    return copy;
+  }  
 }
 
 /**
@@ -393,6 +402,8 @@ export class ArcPrimitive extends DerivativePrimitive {
     this._initializeArc();
     
     logger.info(`Created ArcPrimitive with id: ${this.id}, radius: ${this.radius}, segments: ${this.segments}`);
+    // ── store original params for cloning ─────────────────────
+    this._params = { ...params };    
   }
 
   /**
@@ -494,6 +505,12 @@ export class ArcPrimitive extends DerivativePrimitive {
     logger.info(`Updated ArcPrimitive ${this.id} with new parameters`);
     return this;
   }
+  clone() {
+    const copy = new ArcPrimitive(this._params);
+    copy.blendSmoothness = this.blendSmoothness;
+    copy.color           = { ...this.color };
+    return copy;
+  }  
 }
 
 /**
