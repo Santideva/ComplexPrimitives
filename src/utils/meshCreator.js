@@ -2,8 +2,9 @@
 // A unified mesh-generation utility: 2D isolines, 3D isosurfaces, Delaunay, and curve/arc fitting
 
 import * as THREE from 'three';
-// correct:
+// instead of objects/…
 import { MarchingCubes } from 'three/examples/jsm/objects/MarchingCubes.js';
+
 
 import Delaunator from 'delaunator';
 import { logger } from './logger.js';
@@ -353,10 +354,9 @@ export function marchingCubes(sdfFn3D, bounds3D, resolution = 50, options = {}) 
     // Generate the isosurface
     logger.debug(`Generating isosurface with isolation value: ${isoLevel}`);
     mc.isolation = isoLevel;
-    const geometry = mc.generateGeometry();
     logger.info(`Marching cubes completed. Generated geometry with ${geometry.attributes.position.count} vertices.`);
     
-    return new THREE.Mesh(geometry, new THREE.MeshNormalMaterial());
+    return mc;
   } 
   
   // Alternative: Use web-worker compatible implementation

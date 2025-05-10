@@ -570,7 +570,7 @@ computeSDF(point, callStack = [], time = 0, depth = 0) {
     
     // Apply a constant offset to ensure zero-crossing
     // Subtract 0.5 to make interior points negative
-    sdfValue = sdfValue - 0.5;
+    sdfValue = sdfValue - 1.0;
     
     return sdfValue;
   } finally {
